@@ -18,6 +18,7 @@ import { Character } from '../entities/character'
 import { PlaneRide } from '../world/plane'
 import { Vehicle } from '../world/vehicle'
 import { MAPS, MapConfig } from '../world/mapConfig'
+import { WorldEvents } from '../world/events/worldEvents'
 import { TPCamera } from './camera'
 import { RNG } from '../utils/rng'
 import { clamp } from '../utils/math'
@@ -110,7 +111,7 @@ export class Game {
     )
 
     this.ctx = {
-      scene, camera, world, loot, fx, sfx, zone, combat, hud, input, player, plane,
+      scene, camera, world, loot, fx, sfx, zone, combat, events: new WorldEvents(), hud, input, player, plane,
       vehicles: [], bots: [], chars: [], time: 0, state: 'plane', shots: [],
       aliveCount: cfg.botCount + 1, graceUntil: 40,
       kill: this.kill,
@@ -278,6 +279,7 @@ export class Game {
       ctx.sfx.engineTick(dt)
       ctx.combat.update(ctx, dt)
       if (ctx.state !== 'plane') ctx.zone.update(dt, ctx)
+      ctx.events.update(ctx, dt)
 
       // 阶段推进通知与空投
       if (ctx.zone.idx !== this.lastZoneIdx) {

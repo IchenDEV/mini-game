@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { Character } from './character'
 import { Inventory } from '../items/inventory'
 import { WeaponInst } from '../combat/weapon'
-import { WEAPONS, FISTS, ITEMS, ARMOR_DURABILITY, Rarity } from '../items/defs'
+import { WEAPONS, FISTS, ITEMS, ARMOR_DURABILITY, Rarity, NadeType } from '../items/defs'
 import type { Ctx } from '../core/ctx'
 import type { GroundItem } from '../items/loot'
 import type { Vehicle } from '../world/vehicle'
@@ -13,7 +13,7 @@ const _camDir = new THREE.Vector3()
 const _muzzle = new THREE.Vector3()
 const _aim = new THREE.Vector3()
 const _shotDir = new THREE.Vector3()
-const NADE_TYPES = ['frag', 'smoke', 'flash'] as const
+const NADE_TYPES = ['frag', 'smoke', 'flash', 'molotov', 'decoy'] as const
 const THROW_DUR = 0.5
 
 interface Casting {
@@ -42,7 +42,7 @@ export class Player extends Character {
   private switchLockUntil = 0
   private pendingReload: { w: WeaponInst; end: number } | null = null
   /** 投掷动作进行中：到时刻 at 才真正抛出 */
-  private pendingThrow: { type: 'frag' | 'smoke' | 'flash'; at: number } | null = null
+  private pendingThrow: { type: NadeType; at: number } | null = null
   private stepAcc = 0
   private sens = 0.0023
   blockInput = false
@@ -75,7 +75,7 @@ export class Player extends Character {
     return null
   }
 
-  nadeType(): 'frag' | 'smoke' | 'flash' {
+  nadeType(): NadeType {
     return NADE_TYPES[this.nadeSel]
   }
   nadeCount(): number {
@@ -185,6 +185,12 @@ export class Player extends Character {
     } else if (def.kind === 'boost') {
       this.boost = Math.min(100, this.boost + (def.boostAdd ?? 40))
       ctx.sfx.boost()
+    } else if (def.kind === 'repair') {
+      // 修复护甲与头盔耐久至满
+      if (this.armor) this.armor.dur = ARMOR_DURABILITY[this.armor.level]
+      if (this.helmet) this.helmet.dur = ARMOR_DURABILITY[this.helmet.level]
+      ctx.sfx.equip()
+      ctx.hud.notice('护甲已修复')
     }
   }
 
@@ -307,9 +313,10 @@ export class Player extends Character {
       }
       if (input.pressed('KeyR')) this.startReload(ctx)
       if (input.pressed('KeyT')) {
-        for (let k = 1; k <= 3; k++) {
-          const ni = (this.nadeSel + k) % 3
-          if (this.inv.count(NADE_TYPES[ni]) > 0 || k === 3) { this.nadeSel = ni; break }
+        const n = NADE_TYPES.length
+        for (let k = 1; k <= n; k++) {
+          const ni = (this.nadeSel + k) % n
+          if (this.inv.count(NADE_TYPES[ni]) > 0 || k === n) { this.nadeSel = ni; break }
         }
         ctx.hud.notice(`投掷物：${ITEMS[this.nadeType()].name} ×${this.nadeCount()}`)
       }
@@ -513,7 +520,7 @@ export class Player extends Character {
     const type = this.nadeType()
     if (this.inv.count(type) <= 0) {
       // 尝试切到有库存的类型
-      for (let k = 0; k < 3; k++) {
+      for (let k = 0; k < NADE_TYPES.length; k++) {
         if (this.inv.count(NADE_TYPES[k]) > 0) { this.nadeSel = k; break }
       }
       if (this.inv.count(this.nadeType()) <= 0) { ctx.hud.notice('没有投掷物'); return }
@@ -666,6 +673,13 @@ export class Player extends Character {
     if (!def) return
     if (def.kind === 'med') { if (!this.casting) this.beginCast(ctx, itemId) }
     else if (def.kind === 'boost') { if (!this.casting) this.beginCast(ctx, itemId) }
+    else if (def.kind === 'repair') {
+      if (!this.armor && !this.helmet) { ctx.hud.notice('没有穿戴护甲'); return }
+      const fullA = !this.armor || this.armor.dur >= ARMOR_DURABILITY[this.armor.level]
+      const fullH = !this.helmet || this.helmet.dur >= ARMOR_DURABILITY[this.helmet.level]
+      if (fullA && fullH) { ctx.hud.notice('护甲完好无损'); return }
+      if (!this.casting) this.beginCast(ctx, itemId)
+    }
     else if (def.kind === 'fuel') {
       const v = this.vehicle ?? this.nearVehicle
       if (!v) { ctx.hud.notice('需要在载具旁或车上才能加油'); return }

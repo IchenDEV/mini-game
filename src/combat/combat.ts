@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Ctx } from '../core/ctx'
 import type { Character } from '../entities/character'
+import type { NadeType } from '../items/defs'
 import { WeaponInst } from './weapon'
 import { lerp, DEG } from '../utils/math'
 
@@ -10,12 +11,29 @@ const _t1 = new THREE.Vector3()
 const _t2 = new THREE.Vector3()
 
 interface Grenade {
-  type: 'frag' | 'smoke' | 'flash'
+  type: NadeType
   pos: THREE.Vector3
   vel: THREE.Vector3
   fuse: number
   mesh: THREE.Mesh
   thrower: Character
+}
+
+/** 燃烧瓶火区 */
+interface FireZone {
+  x: number; y: number; z: number
+  r: number
+  until: number
+  nextTick: number
+  owner: Character
+}
+
+/** 诱饵弹：周期性假枪声吸引 AI */
+interface Decoy {
+  x: number; y: number; z: number
+  until: number
+  nextShot: number
+  owner: Character
 }
 
 function raySphere(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, cx: number, cy: number, cz: number, r: number): number {
@@ -46,11 +64,15 @@ function rayVCyl(ox: number, oy: number, oz: number, dx: number, dy: number, dz:
 /** 射击/近战/手雷 结算系统 */
 export class Combat {
   grenades: Grenade[] = []
+  fireZones: FireZone[] = []
+  private decoys: Decoy[] = []
   private nadeGeo = new THREE.SphereGeometry(0.11, 6, 5)
-  private nadeMats = {
+  private nadeMats: Record<NadeType, THREE.MeshLambertMaterial> = {
     frag: new THREE.MeshLambertMaterial({ color: 0x44513c }),
     smoke: new THREE.MeshLambertMaterial({ color: 0x8a9298 }),
     flash: new THREE.MeshLambertMaterial({ color: 0xd8d8d0 }),
+    molotov: new THREE.MeshLambertMaterial({ color: 0xb35a22 }),
+    decoy: new THREE.MeshLambertMaterial({ color: 0x4a6a8a }),
   }
 
   /**
@@ -169,13 +191,14 @@ export class Combat {
     return false
   }
 
-  throwGrenade(ctx: Ctx, thrower: Character, type: 'frag' | 'smoke' | 'flash', origin: THREE.Vector3, dir: THREE.Vector3) {
+  throwGrenade(ctx: Ctx, thrower: Character, type: NadeType, origin: THREE.Vector3, dir: THREE.Vector3) {
     const mesh = new THREE.Mesh(this.nadeGeo, this.nadeMats[type])
     mesh.position.copy(origin)
     ctx.scene.add(mesh)
     const vel = new THREE.Vector3().copy(dir).multiplyScalar(17)
     vel.y += 4.5
-    this.grenades.push({ type, pos: origin.clone(), vel, fuse: type === 'frag' ? 2.9 : 1.7, mesh, thrower })
+    const fuse = type === 'frag' ? 2.9 : type === 'molotov' ? 1.1 : type === 'decoy' ? 1.4 : 1.7
+    this.grenades.push({ type, pos: origin.clone(), vel, fuse, mesh, thrower })
   }
 
   update(ctx: Ctx, dt: number) {
@@ -217,6 +240,47 @@ export class Combat {
         this.detonate(ctx, g)
       }
     }
+
+    // 燃烧瓶火区：持续火焰粒子 + 周期灼烧
+    for (let i = this.fireZones.length - 1; i >= 0; i--) {
+      const f = this.fireZones[i]
+      if (ctx.time > f.until) {
+        this.fireZones.splice(i, 1)
+        continue
+      }
+      // 火焰与烟粒子
+      for (let k = 0; k < 2; k++) {
+        const a = Math.random() * Math.PI * 2
+        const rr = Math.random() * f.r
+        ctx.fx.flame(f.x + Math.cos(a) * rr, f.y + 0.1, f.z + Math.sin(a) * rr)
+      }
+      if (ctx.time >= f.nextTick) {
+        f.nextTick = ctx.time + 0.5
+        for (const c of ctx.chars) {
+          if (!c.alive) continue
+          const dx = c.pos.x - f.x, dz = c.pos.z - f.z
+          if (dx * dx + dz * dz > f.r * f.r) continue
+          if (Math.abs(c.pos.y - f.y) > 2.2) continue
+          c.takeDamage(7, false, f.owner, '燃烧瓶', ctx)
+        }
+      }
+    }
+
+    // 诱饵弹：周期假枪声（写入 shots 供 AI 听声索敌）
+    for (let i = this.decoys.length - 1; i >= 0; i--) {
+      const d = this.decoys[i]
+      if (ctx.time > d.until) {
+        this.decoys.splice(i, 1)
+        continue
+      }
+      if (ctx.time >= d.nextShot) {
+        d.nextShot = ctx.time + 0.25 + Math.random() * 0.65
+        _t1.set(d.x, d.y + 0.3, d.z)
+        ctx.sfx.shot(_t1, Math.random() < 0.3 ? 'SMG' : 'AR', false)
+        ctx.fx.muzzle(d.x, d.y + 0.35, d.z)
+        ctx.shots.push({ x: d.x, y: d.y + 0.3, z: d.z, t: ctx.time, loud: 95, shooter: d.owner })
+      }
+    }
   }
 
   private detonate(ctx: Ctx, g: Grenade) {
@@ -241,6 +305,16 @@ export class Combat {
     } else if (g.type === 'smoke') {
       ctx.fx.smoke(g.pos.x, g.pos.y, g.pos.z)
       ctx.sfx.zoneTick()
+    } else if (g.type === 'molotov') {
+      // 燃烧瓶：碎裂火区
+      ctx.sfx.explosion(g.pos)
+      ctx.fx.explosion(g.pos.x, g.pos.y, g.pos.z)
+      this.fireZones.push({ x: g.pos.x, y: g.pos.y, z: g.pos.z, r: 3.6, until: ctx.time + 6, nextTick: ctx.time + 0.3, owner: g.thrower })
+      const pd = ctx.player.pos.distanceTo(g.pos)
+      if (pd < 18) ctx.fx.kick('explosion', 0.4 * (1 - pd / 18))
+    } else if (g.type === 'decoy') {
+      // 诱饵弹：落地后持续假枪声
+      this.decoys.push({ x: g.pos.x, y: g.pos.y, z: g.pos.z, until: ctx.time + 9, nextShot: ctx.time + 0.4, owner: g.thrower })
     } else {
       // 闪光弹
       ctx.fx.explosion(g.pos.x, g.pos.y + 0.5, g.pos.z)

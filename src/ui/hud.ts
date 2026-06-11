@@ -442,6 +442,44 @@ export class HUD {
       g.stroke()
     }
 
+    // 局内事件标记
+    for (const ev of ctx.events.markers()) {
+      const [ex, ey] = toC(ev.x, ev.z)
+      const er = ev.r * pxPerM
+      if (ex < -er - 20 || ex > W + er + 20 || ey < -er - 20 || ey > H + er + 20) continue
+      if (ev.kind === 'bombing') {
+        g.fillStyle = ev.warn ? 'rgba(255,60,40,0.30)' : 'rgba(255,60,40,0.16)'
+        g.strokeStyle = 'rgba(255,80,50,0.95)'
+        g.lineWidth = 1.6
+        g.beginPath()
+        g.arc(ex, ey, er, 0, Math.PI * 2)
+        g.fill()
+        g.stroke()
+      } else {
+        const col = ev.kind === 'supply' ? '#ffd45e' : ev.kind === 'convoy' ? '#c8d2da' : '#c08aff'
+        g.fillStyle = col
+        g.strokeStyle = 'rgba(0,0,0,0.65)'
+        g.lineWidth = 1
+        g.beginPath()
+        g.arc(ex, ey, 4, 0, Math.PI * 2)
+        g.fill()
+        g.stroke()
+        if (ev.progress !== undefined && ev.progress > 0.01) {
+          g.strokeStyle = '#c08aff'
+          g.lineWidth = 2
+          g.beginPath()
+          g.arc(ex, ey, 7.5, -Math.PI / 2, -Math.PI / 2 + ev.progress * Math.PI * 2)
+          g.stroke()
+        }
+      }
+      g.font = 'bold 10px sans-serif'
+      g.textAlign = 'center'
+      g.fillStyle = 'rgba(0,0,0,0.65)'
+      g.fillText(ev.label, ex + 1, ey - 8)
+      g.fillStyle = ev.kind === 'bombing' ? '#ff8a70' : '#f0ead8'
+      g.fillText(ev.label, ex, ey - 9)
+    }
+
     // 枪声指示
     for (const s of ctx.shots) {
       const age = ctx.time - s.t

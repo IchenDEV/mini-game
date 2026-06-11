@@ -156,6 +156,17 @@ export class Effects {
     }
   }
 
+  /** 火区火焰粒子（橙焰 + 偶发黑烟） */
+  flame(x: number, y: number, z: number) {
+    const smoke = Math.random() < 0.25
+    this.particle(
+      x, y, z,
+      (Math.random() - 0.5) * 0.8, 1.6 + Math.random() * 2.2, (Math.random() - 0.5) * 0.8,
+      smoke ? 0.9 : 0.4 + Math.random() * 0.25,
+      smoke ? 0.16 : 1.0, smoke ? 0.15 : 0.45 + Math.random() * 0.3, smoke ? 0.14 : 0.08,
+    )
+  }
+
   blood(x: number, y: number, z: number) {
     for (let i = 0; i < 8; i++) {
       this.particle(

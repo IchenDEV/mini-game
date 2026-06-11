@@ -254,6 +254,22 @@ export class Bot extends Character {
       this.state = 'wander'
       this.dest = null
     }
+    // 轰炸区规避：保命优先于一切交战
+    for (const dz of ctx.events.dangerZones()) {
+      const d = dist2D(this.pos.x, this.pos.z, dz.x, dz.z)
+      if (d < dz.r) {
+        const ang = Math.atan2(this.pos.x - dz.x, this.pos.z - dz.z) + this.rng.range(-0.3, 0.3)
+        const run = dz.r - d + 14
+        this.state = 'flee'
+        this.fleeUntil = t + 5
+        this.wanderSprint = true
+        this.dest = {
+          x: clamp(this.pos.x + Math.sin(ang) * run, -360, 360),
+          z: clamp(this.pos.z + Math.cos(ang) * run, -360, 360),
+        }
+        return
+      }
+    }
     if (this.target) {
       this.state = 'combat'
       return
@@ -328,6 +344,13 @@ export class Bot extends Character {
     for (const a of ctx.loot.airdrops) {
       if (a.landed && dist2D(this.pos.x, this.pos.z, a.x, a.z) < 220 && this.rng.chance(0.3)) {
         return { x: a.x + this.rng.range(-6, 6), z: a.z + this.rng.range(-6, 6) }
+      }
+    }
+    // 局内事件吸引：补给点 / 车队 / 信号塔（高技巧 AI 更敢去抢）
+    for (const at of ctx.events.attractions()) {
+      const d = dist2D(this.pos.x, this.pos.z, at.x, at.z)
+      if (d < 260 && this.rng.chance(this.skill > 1 ? 0.4 : 0.2)) {
+        return { x: at.x + this.rng.range(-5, 5), z: at.z + this.rng.range(-5, 5) }
       }
     }
     if (this.rng.chance(0.5)) {

@@ -130,7 +130,9 @@ export const ARMOR_REDUCE = [0, 0.3, 0.4, 0.5]
 export const ARMOR_DURABILITY = [0, 80, 120, 180]
 export const BAG_CAPACITY = [70, 110, 150, 200]
 
-export type ItemKind = 'ammo' | 'med' | 'boost' | 'armor' | 'helmet' | 'bag' | 'attach' | 'nade' | 'meleeWeapon' | 'fuel'
+export type ItemKind = 'ammo' | 'med' | 'boost' | 'armor' | 'helmet' | 'bag' | 'attach' | 'nade' | 'meleeWeapon' | 'fuel' | 'repair'
+
+export type NadeType = 'frag' | 'smoke' | 'flash' | 'molotov' | 'decoy'
 
 export interface ItemDef {
   id: string
@@ -149,7 +151,7 @@ export interface ItemDef {
   recoilMult?: number
   silenced?: boolean
   magMult?: number
-  nadeType?: 'frag' | 'smoke' | 'flash'
+  nadeType?: NadeType
   /** 限定可安装的武器类型 */
   clsAllow?: WeaponClass[]
 }
@@ -179,6 +181,10 @@ export const ITEMS: Record<string, ItemDef> = {
   frag: { id: 'frag', kind: 'nade', name: '破片手雷', w: 9, nadeType: 'frag' },
   smoke: { id: 'smoke', kind: 'nade', name: '烟雾弹', w: 7, nadeType: 'smoke' },
   flash: { id: 'flash', kind: 'nade', name: '闪光弹', w: 7, nadeType: 'flash' },
+  molotov: { id: 'molotov', kind: 'nade', name: '燃烧瓶', w: 9, nadeType: 'molotov' },
+  decoy: { id: 'decoy', kind: 'nade', name: '诱饵弹', w: 5, nadeType: 'decoy' },
+  adrenaline: { id: 'adrenaline', kind: 'boost', name: '肾上腺素', w: 12, boostAdd: 100, castTime: 4.5 },
+  armorkit: { id: 'armorkit', kind: 'repair', name: '护甲修理包', w: 14, castTime: 4.2 },
   pan_item: { id: 'pan_item', kind: 'meleeWeapon', name: '铸铁平底锅', w: 6 },
   fuelcan: { id: 'fuelcan', kind: 'fuel', name: '汽油桶', w: 12 },
 }

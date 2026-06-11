@@ -44,9 +44,9 @@ const CAT_W: Record<number, number[]> = {
   3: [30, 17, 12, 10, 10, 6, 8, 3, 4, 1],
 }
 const WEAPON_T: Record<number, [string, number][]> = {
-  1: [['p9', 30], ['wasp', 22], ['backdraft', 20], ['raptor', 18], ['vista', 7], ['longfang', 3]],
-  2: [['p9', 10], ['wasp', 22], ['backdraft', 18], ['raptor', 28], ['vista', 14], ['longfang', 6], ['pan', 2]],
-  3: [['raptor', 30], ['wasp', 12], ['backdraft', 9], ['vista', 22], ['longfang', 15], ['p9', 3], ['pan', 9]],
+  1: [['p9', 26], ['wasp', 20], ['backdraft', 18], ['raptor', 16], ['whisper', 6], ['bison', 5], ['vista', 6], ['longfang', 3]],
+  2: [['p9', 8], ['wasp', 19], ['backdraft', 14], ['raptor', 25], ['tempest', 7], ['bison', 5], ['whisper', 4], ['vista', 12], ['longfang', 5], ['pan', 2]],
+  3: [['raptor', 25], ['wasp', 10], ['backdraft', 7], ['tempest', 8], ['boar', 9], ['bison', 3], ['vista', 18], ['longfang', 12], ['p9', 2], ['pan', 6]],
 }
 const RARITY_T: Record<number, number[]> = {
   1: [62, 27, 10, 1],
@@ -59,15 +59,15 @@ const LEVEL_T: Record<number, number[]> = {
   3: [18, 48, 34],
 }
 const MED_T: Record<number, [string, number][]> = {
-  1: [['bandage', 60], ['firstaid', 34], ['medkit', 6]],
-  2: [['bandage', 45], ['firstaid', 45], ['medkit', 10]],
-  3: [['bandage', 30], ['firstaid', 52], ['medkit', 18]],
+  1: [['bandage', 60], ['firstaid', 32], ['medkit', 5], ['armorkit', 3]],
+  2: [['bandage', 42], ['firstaid', 43], ['medkit', 9], ['armorkit', 6]],
+  3: [['bandage', 26], ['firstaid', 48], ['medkit', 17], ['armorkit', 9]],
 }
 const ATTACH_T: [string, number][] = [
   ['scope_red', 22], ['scope_4x', 12], ['scope_8x', 4],
   ['muzzle_comp', 18], ['muzzle_sup', 12], ['grip', 16], ['extmag', 16],
 ]
-const NADE_T: [string, number][] = [['frag', 45], ['smoke', 30], ['flash', 25]]
+const NADE_T: [string, number][] = [['frag', 36], ['smoke', 24], ['flash', 18], ['molotov', 14], ['decoy', 8]]
 const AMMO_T: Record<number, [AmmoType, number][]> = {
   1: [['light', 40], ['rifle', 36], ['sniper', 10], ['shell', 14]],
   2: [['light', 34], ['rifle', 40], ['sniper', 13], ['shell', 13]],
@@ -85,8 +85,8 @@ const BIOME_WEAPON_BIAS: Record<string, Record<string, number>> = {
 }
 const BIOME_NADE_BIAS: Record<string, Record<string, number>> = {
   grassland: {},
-  desert: { smoke: 1.3 },
-  jungle: { smoke: 1.6, frag: 1.2 },
+  desert: { smoke: 1.3, decoy: 1.4 },
+  jungle: { smoke: 1.6, frag: 1.2, molotov: 1.5 },
 }
 const BIOME_AMMO_BIAS: Record<string, Partial<Record<AmmoType, number>>> = {
   grassland: {},
@@ -167,7 +167,13 @@ export class LootSystem {
       case 'helmet': this.spawnItem(x, y, z, `helm${this.rng.weighted(LEVEL_T[tier]) + 1}`, 1); break
       case 'bag': this.spawnItem(x, y, z, `bag${this.rng.weighted(LEVEL_T[tier]) + 1}`, 1); break
       case 'attach': this.spawnItem(x, y, z, pickWeighted(this.rng, ATTACH_T), 1); break
-      case 'boost': this.spawnItem(x, y, z, this.rng.chance(tier === 3 ? 0.5 : 0.7) ? 'drink' : 'pills', 1); break
+      case 'boost': {
+        const tbl: [string, number][] = tier === 3
+          ? [['drink', 38], ['pills', 42], ['adrenaline', 20]]
+          : [['drink', 58], ['pills', 36], ['adrenaline', 6]]
+        this.spawnItem(x, y, z, pickWeighted(this.rng, tbl), 1)
+        break
+      }
       case 'nade': this.spawnItem(x, y, z, pickWeighted(this.rng, biased(NADE_T, this.nBias)), 1); break
       case 'fuel': this.spawnItem(x, y, z, 'fuelcan', 1); break
     }
@@ -296,8 +302,18 @@ export class LootSystem {
         }
         break
       case 'nade':
-        add(new THREE.SphereGeometry(0.12, 7, 6), def.id === 'frag' ? 0x44513c : def.id === 'smoke' ? 0x8a9298 : 0xd8d8d0)
-        add(new THREE.BoxGeometry(0.05, 0.08, 0.05), 0x6a6a62, 0, 0.13, 0)
+        if (def.id === 'molotov') {
+          add(new THREE.CylinderGeometry(0.07, 0.09, 0.24, 7), 0xb35a22)
+          add(new THREE.BoxGeometry(0.04, 0.1, 0.04), 0xe8e2d0, 0, 0.16, 0)
+        } else {
+          add(new THREE.SphereGeometry(0.12, 7, 6),
+            def.id === 'frag' ? 0x44513c : def.id === 'smoke' ? 0x8a9298 : def.id === 'decoy' ? 0x4a6a8a : 0xd8d8d0)
+          add(new THREE.BoxGeometry(0.05, 0.08, 0.05), 0x6a6a62, 0, 0.13, 0)
+        }
+        break
+      case 'repair':
+        add(new THREE.BoxGeometry(0.3, 0.18, 0.22), 0x6a7686)
+        add(new THREE.BoxGeometry(0.18, 0.05, 0.06), 0xd8d2c2, 0, 0.11, 0)
         break
       case 'meleeWeapon': {
         const pan = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.035, 10), lam(0x4a5158))
@@ -381,13 +397,14 @@ export class LootSystem {
     a.opened = true
     const y = a.groundY - 0.55 + 0.1
     const off = () => this.rng.range(-1.6, 1.6)
-    const wid = pickWeighted(this.rng, [['raptor', 40], ['vista', 30], ['longfang', 30]] as [string, number][])
+    // 空投专属：雷霆战略狙击枪占 35%，轻机枪 20%
+    const wid = pickWeighted(this.rng, [['thunder', 35], ['boar', 20], ['raptor', 18], ['vista', 14], ['longfang', 13]] as [string, number][])
     this.spawnWeapon(a.x + off(), y, a.z + off(), wid, 3, true)
     this.spawnItem(a.x + off(), y, a.z + off(), 'armor3', 1)
     this.spawnItem(a.x + off(), y, a.z + off(), 'helm3', 1)
     this.spawnItem(a.x + off(), y, a.z + off(), 'medkit', 1)
     this.spawnItem(a.x + off(), y, a.z + off(), this.rng.chance(0.5) ? 'scope_4x' : 'scope_8x', 1)
-    this.spawnItem(a.x + off(), y, a.z + off(), 'pills', 1)
+    this.spawnItem(a.x + off(), y, a.z + off(), this.rng.chance(0.4) ? 'adrenaline' : 'pills', 1)
   }
 
   update(dt: number, time: number) {

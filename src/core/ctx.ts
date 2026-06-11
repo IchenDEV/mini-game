@@ -12,6 +12,7 @@ import type { Bot } from '../entities/bot'
 import type { Character } from '../entities/character'
 import type { PlaneRide } from '../world/plane'
 import type { Vehicle } from '../world/vehicle'
+import type { WorldEvents } from '../world/events/worldEvents'
 
 export type GameState = 'plane' | 'drop' | 'play' | 'end'
 
@@ -32,6 +33,7 @@ export interface Ctx {
   sfx: Sfx
   zone: SafeZone
   combat: Combat
+  events: WorldEvents
   hud: HUD
   input: Input
   player: Player
