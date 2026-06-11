@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>孤圈行动 LAST CIRCLE — 生存射击原型</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="hud" class="hidden">
+    <!-- 顶部信息条 -->
+    <div id="topbar">
+      <div class="pill" id="zone-pill"><span id="zone-label">准备</span><span id="zone-timer">--</span></div>
+      <div class="pill"><span class="ico">&#9650;</span><span id="alive-count">--</span> 存活</div>
+      <div class="pill amber"><span class="ico">&#10006;</span><span id="kill-count">0</span> 击杀</div>
+    </div>
+
+    <!-- 小地图 -->
+    <div id="minimap-wrap">
+      <canvas id="minimap" width="230" height="230"></canvas>
+      <div id="minimap-coord">--</div>
+    </div>
+
+    <!-- 击杀信息流 -->
+    <div id="killfeed"></div>
+
+    <!-- 中央横幅提示 -->
+    <div id="banner"></div>
+
+    <!-- 准星 -->
+    <div id="crosshair">
+      <div class="ch-line ch-t"></div><div class="ch-line ch-b"></div>
+      <div class="ch-line ch-l"></div><div class="ch-line ch-r"></div>
+      <div class="ch-dot"></div>
+    </div>
+    <div id="hitmarker">&#10006;</div>
+    <div id="scope-overlay" class="hidden"><div class="scope-cross-h"></div><div class="scope-cross-v"></div></div>
+
+    <!-- 受击反馈 -->
+    <div id="vignette"></div>
+    <div id="flashwhite"></div>
+    <div id="dmg-dir"></div>
+
+    <!-- 交互提示 -->
+    <div id="prompt" class="hidden"></div>
+
+    <!-- 施法/治疗进度 -->
+    <div id="castbar" class="hidden">
+      <div id="cast-label">使用中…</div>
+      <div class="cast-track"><div id="cast-fill"></div></div>
+    </div>
+
+    <!-- 左下：生命/护甲/能量 -->
+    <div id="vitals">
+      <div id="status-line"><span id="rank-text"></span></div>
+      <div class="bar boost"><div id="boost-fill"></div></div>
+      <div class="bar armor"><div id="armor-fill"></div></div>
+      <div class="bar hp"><div id="hp-fill"></div><span id="hp-text">100</span></div>
+      <div id="equip-line"></div>
+    </div>
+
+    <!-- 右下：武器卡 -->
+    <div id="weapon-card">
+      <div id="wpn-name">徒手</div>
+      <div id="wpn-attach"></div>
+      <div id="wpn-ammo"><span id="ammo-mag">--</span><span id="ammo-sep">/</span><span id="ammo-pool">--</span></div>
+      <div id="wpn-mode">近战</div>
+      <div id="slots">
+        <span class="slot" data-slot="0">1</span>
+        <span class="slot" data-slot="1">2</span>
+        <span class="slot" data-slot="2">3</span>
+        <span class="slot" data-slot="3">4</span>
+        <span class="slot" data-slot="4">5</span>
+      </div>
+    </div>
+
+    <!-- 操作提示 -->
+    <div id="hints">
+      WASD 移动 · Shift 奔跑 · C 蹲伏 · 空格 跳跃 · 鼠标左键 射击 · 右键 瞄准<br/>
+      E 拾取 · R 换弹 · 1-5 切换武器 · G 投掷 · T 切换投掷物 · H 治疗 · J 能量 · Tab 背包 · M 地图
+    </div>
+  </div>
+
+  <!-- 背包面板 -->
+  <div id="inventory-panel" class="hidden"></div>
+
+  <!-- 全屏地图 -->
+  <div id="fullmap-wrap" class="hidden"><canvas id="fullmap" width="660" height="660"></canvas></div>
+
+  <!-- 点击锁定鼠标 -->
+  <div id="overlay-lock" class="hidden">
+    <div class="lock-card">
+      <h1>孤圈行动</h1>
+      <p>LAST CIRCLE · 生存射击原型</p>
+      <button id="btn-lock">点击进入战场</button>
+      <div class="lock-hint">滑翔阶段：WASD 转向 · 按住 F 加速下坠</div>
+    </div>
+  </div>
+
+  <!-- 结算 -->
+  <div id="end-screen" class="hidden">
+    <div class="end-card">
+      <h1 id="end-title">--</h1>
+      <div id="end-stats"></div>
+      <button id="btn-restart">再来一局</button>
+    </div>
+  </div>
+
+  <div id="loading"><div class="load-inner"><h1>孤圈行动</h1><p>正在生成战场…</p></div></div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

@@ -1,0 +1,259 @@
+:root {
+  --panel: rgba(16, 20, 24, 0.55);
+  --panel-border: rgba(255, 255, 255, 0.14);
+  --fg: #e8ecef;
+  --fg-dim: #9aa6ad;
+  --amber: #f0b35c;
+  --hp: #e8ecef;
+  --armor: #6db5ff;
+  --boost: #f7a531;
+  --danger: #e5484d;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #0c0f12;
+  font-family: "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  color: var(--fg);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#app, #app canvas { position: fixed; inset: 0; }
+body.locked { cursor: none; }
+
+.hidden { display: none !important; }
+
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+#hud > * { position: absolute; }
+
+/* ---------- 顶部 ---------- */
+#topbar {
+  top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; align-items: center;
+}
+.pill {
+  background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 5px 12px;
+  font-size: 13px; letter-spacing: 0.05em;
+  display: flex; gap: 6px; align-items: center;
+  backdrop-filter: blur(4px);
+}
+.pill .ico { font-size: 10px; opacity: 0.7; }
+.pill.amber { color: var(--amber); }
+#zone-pill #zone-timer { font-variant-numeric: tabular-nums; font-weight: 700; }
+#zone-pill.warn { color: #ffd166; border-color: rgba(255, 209, 102, 0.5); }
+#zone-pill.danger { color: var(--danger); border-color: rgba(229, 72, 77, 0.6); animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: 0.55; } }
+
+/* ---------- 小地图 ---------- */
+#minimap-wrap {
+  top: 14px; right: 14px;
+  border: 1px solid var(--panel-border); border-radius: 8px;
+  background: var(--panel); padding: 4px;
+}
+#minimap { display: block; border-radius: 5px; }
+#minimap-coord {
+  text-align: center; font-size: 10px; color: var(--fg-dim);
+  padding-top: 3px; letter-spacing: 0.1em; font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 击杀流 ---------- */
+#killfeed { top: 14px; left: 14px; display: flex; flex-direction: column; gap: 4px; max-width: 360px; }
+.feed-item {
+  background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: 4px; padding: 4px 10px; font-size: 12px;
+  opacity: 1; transition: opacity 0.6s;
+}
+.feed-item .k { color: var(--amber); font-weight: 600; }
+.feed-item .v { color: #ff8589; }
+.feed-item .w { color: var(--fg-dim); }
+
+/* ---------- 横幅 ---------- */
+#banner {
+  top: 17%; left: 50%; transform: translateX(-50%);
+  font-size: 20px; font-weight: 700; letter-spacing: 0.12em;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+  text-align: center; opacity: 0; transition: opacity 0.3s;
+}
+#banner.show { opacity: 1; }
+#banner.danger { color: var(--danger); }
+#banner.amber { color: var(--amber); }
+
+/* ---------- 准星 ---------- */
+#crosshair { left: 50%; top: 50%; width: 0; height: 0; }
+.ch-line { position: absolute; background: rgba(255, 255, 255, 0.92); box-shadow: 0 0 2px rgba(0,0,0,0.9); }
+.ch-t, .ch-b { width: 2px; height: 9px; left: -1px; }
+.ch-l, .ch-r { height: 2px; width: 9px; top: -1px; }
+.ch-dot { position: absolute; width: 2px; height: 2px; left: -1px; top: -1px; background: #fff; }
+#hitmarker {
+  left: 50%; top: 50%; transform: translate(-50%, -50%) scale(1);
+  font-size: 22px; color: #fff; opacity: 0; font-weight: 900;
+  text-shadow: 0 0 4px rgba(0,0,0,0.8);
+}
+#hitmarker.head { color: var(--danger); }
+#hitmarker.kill { color: var(--amber); }
+
+/* ---------- 倍镜 ---------- */
+#scope-overlay { inset: 0; background: radial-gradient(circle at center, transparent 31%, rgba(2,4,6,0.985) 33.5%); }
+.scope-cross-h, .scope-cross-v { position: absolute; left: 50%; top: 50%; background: rgba(10,12,14,0.9); }
+.scope-cross-h { width: 64vmin; height: 1.5px; transform: translate(-50%, -50%); }
+.scope-cross-v { height: 64vmin; width: 1.5px; transform: translate(-50%, -50%); }
+
+/* ---------- 受击 ---------- */
+#vignette {
+  inset: 0; opacity: 0;
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(190, 16, 24, 0.55) 100%);
+}
+#flashwhite { inset: 0; background: #fff; opacity: 0; }
+#dmg-dir {
+  left: 50%; top: 50%; width: 130px; height: 130px;
+  transform: translate(-50%, -50%); opacity: 0;
+}
+#dmg-dir::before {
+  content: ""; position: absolute; left: 50%; top: -22px;
+  width: 44px; height: 14px; transform: translateX(-50%);
+  background: var(--danger);
+  clip-path: polygon(0 100%, 50% 0, 100% 100%);
+}
+
+/* ---------- 交互提示 ---------- */
+#prompt {
+  left: 50%; bottom: 31%; transform: translateX(-50%);
+  background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 7px 14px; font-size: 14px;
+  backdrop-filter: blur(4px); white-space: nowrap;
+}
+#prompt b { color: var(--amber); border: 1px solid var(--amber); border-radius: 3px; padding: 0 5px; margin-right: 7px; font-size: 12px; }
+#prompt .full { color: var(--danger); }
+
+/* ---------- 施法条 ---------- */
+#castbar { left: 50%; bottom: 24%; transform: translateX(-50%); width: 240px; text-align: center; }
+#cast-label { font-size: 12px; color: var(--fg-dim); margin-bottom: 4px; }
+.cast-track { height: 6px; background: rgba(0,0,0,0.55); border: 1px solid var(--panel-border); border-radius: 3px; overflow: hidden; }
+#cast-fill { height: 100%; width: 0%; background: var(--amber); }
+
+/* ---------- 左下生命区 ---------- */
+#vitals { left: 50%; bottom: 26px; transform: translateX(-50%); width: 380px; }
+#vitals .bar { position: relative; border: 1px solid var(--panel-border); background: rgba(0,0,0,0.5); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+#vitals .bar.hp { height: 17px; }
+#vitals .bar.armor { height: 6px; }
+#vitals .bar.boost { height: 4px; }
+#hp-fill { height: 100%; width: 100%; background: var(--hp); transition: width 0.15s; }
+#hp-fill.low { background: var(--danger); }
+#hp-fill.mid { background: #ffd166; }
+#armor-fill { height: 100%; width: 0%; background: var(--armor); }
+#boost-fill { height: 100%; width: 0%; background: var(--boost); }
+#hp-text {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  font-size: 11px; font-weight: 700; color: #14181c; mix-blend-mode: normal;
+}
+#status-line { font-size: 12px; color: var(--fg-dim); text-align: left; min-height: 15px; }
+#rank-text { color: var(--amber); font-weight: 600; }
+#equip-line { font-size: 11px; color: var(--fg-dim); margin-top: 4px; letter-spacing: 0.04em; }
+
+/* ---------- 武器卡 ---------- */
+#weapon-card {
+  right: 18px; bottom: 22px; width: 250px; text-align: right;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: 8px; padding: 10px 14px; backdrop-filter: blur(4px);
+}
+#wpn-name { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; }
+#wpn-attach { font-size: 10px; color: var(--fg-dim); min-height: 13px; margin-top: 1px; }
+#wpn-ammo { font-variant-numeric: tabular-nums; margin-top: 2px; }
+#ammo-mag { font-size: 30px; font-weight: 800; }
+#ammo-sep { color: var(--fg-dim); margin: 0 3px; }
+#ammo-pool { font-size: 14px; color: var(--fg-dim); }
+#wpn-mode { font-size: 10px; color: var(--fg-dim); letter-spacing: 0.2em; }
+#slots { display: flex; gap: 5px; justify-content: flex-end; margin-top: 8px; }
+.slot {
+  min-width: 26px; height: 22px; padding: 0 6px; line-height: 20px; text-align: center;
+  border: 1px solid var(--panel-border); border-radius: 4px;
+  font-size: 11px; color: var(--fg-dim); background: rgba(0,0,0,0.35);
+}
+.slot.active { border-color: var(--amber); color: var(--amber); }
+.slot.has { color: var(--fg); }
+
+/* ---------- 提示 ---------- */
+#hints {
+  left: 50%; bottom: 4px; transform: translateX(-50%);
+  font-size: 10.5px; color: rgba(255,255,255,0.4); text-align: center; line-height: 1.5;
+  transition: opacity 1.5s;
+}
+
+/* ---------- 背包 ---------- */
+#inventory-panel {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 660px; max-height: 78vh; overflow-y: auto; z-index: 30;
+  background: rgba(13, 16, 20, 0.93); border: 1px solid var(--panel-border);
+  border-radius: 10px; padding: 18px 22px;
+}
+#inventory-panel h2 { font-size: 16px; letter-spacing: 0.15em; margin-bottom: 4px; color: var(--amber); }
+#inv-cap { font-size: 12px; color: var(--fg-dim); margin-bottom: 10px; }
+#inv-cap .cap-track { display: inline-block; width: 220px; height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; vertical-align: middle; margin: 0 8px; overflow: hidden; }
+#inv-cap .cap-fill { display: block; height: 100%; background: var(--amber); }
+.inv-cols { display: flex; gap: 18px; }
+.inv-col { flex: 1; }
+.inv-col h3 { font-size: 12px; color: var(--fg-dim); letter-spacing: 0.1em; margin: 10px 0 6px; border-bottom: 1px solid var(--panel-border); padding-bottom: 4px; }
+.inv-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 5px; font-size: 13px;
+  background: rgba(255,255,255,0.035); margin-bottom: 4px;
+}
+.inv-row .nm { flex: 1; }
+.inv-row .ct { color: var(--fg-dim); font-size: 12px; }
+.inv-row button {
+  background: rgba(240, 179, 92, 0.12); color: var(--amber);
+  border: 1px solid rgba(240, 179, 92, 0.4); border-radius: 4px;
+  font-size: 11px; padding: 2px 8px; cursor: pointer;
+}
+.inv-row button:hover { background: rgba(240, 179, 92, 0.3); }
+.inv-row button.drop { color: var(--fg-dim); border-color: var(--panel-border); background: transparent; }
+.inv-empty { color: var(--fg-dim); font-size: 12px; padding: 4px 8px; }
+#inv-close-hint { margin-top: 12px; font-size: 11px; color: var(--fg-dim); text-align: center; }
+.r0 { color: #d8d8d8; } .r1 { color: #5fd663; } .r2 { color: #4aa3ff; } .r3 { color: #c66bff; }
+
+/* ---------- 全屏地图 ---------- */
+#fullmap-wrap {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 25;
+  background: rgba(10, 13, 16, 0.9); border: 1px solid var(--panel-border);
+  border-radius: 10px; padding: 10px;
+}
+#fullmap { display: block; border-radius: 6px; }
+
+/* ---------- 锁定遮罩 / 结算 ---------- */
+#overlay-lock, #end-screen {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(5, 8, 10, 0.62); backdrop-filter: blur(3px);
+}
+.lock-card, .end-card {
+  text-align: center; background: rgba(14, 18, 22, 0.92);
+  border: 1px solid var(--panel-border); border-radius: 14px;
+  padding: 42px 64px;
+}
+.lock-card h1, .end-card h1 { font-size: 34px; letter-spacing: 0.3em; margin-bottom: 6px; }
+.lock-card p { color: var(--fg-dim); letter-spacing: 0.25em; font-size: 12px; margin-bottom: 26px; }
+.lock-hint { margin-top: 18px; font-size: 11px; color: var(--fg-dim); }
+#btn-lock, #btn-restart {
+  font-size: 16px; letter-spacing: 0.2em; padding: 12px 38px;
+  background: var(--amber); color: #141414; font-weight: 700;
+  border: none; border-radius: 6px; cursor: pointer;
+}
+#btn-lock:hover, #btn-restart:hover { filter: brightness(1.1); }
+#end-title.win { color: var(--amber); }
+#end-title.lose { color: var(--danger); }
+#end-stats { margin: 18px 0 26px; font-size: 14px; color: var(--fg-dim); line-height: 2; }
+#end-stats b { color: var(--fg); font-variant-numeric: tabular-nums; }
+
+/* ---------- 载入 ---------- */
+#loading {
+  position: fixed; inset: 0; z-index: 50; background: #0c0f12;
+  display: flex; align-items: center; justify-content: center;
+}
+.load-inner { text-align: center; }
+.load-inner h1 { letter-spacing: 0.4em; font-size: 30px; margin-bottom: 12px; }
+.load-inner p { color: var(--fg-dim); letter-spacing: 0.2em; font-size: 13px; animation: pulse 1.2s infinite; }
