@@ -156,6 +156,15 @@ export class Effects {
     }
   }
 
+  /** 飞机引擎凝结尾迹：白色长寿命缓散粒子 */
+  contrail(x: number, y: number, z: number) {
+    this.particle(
+      x, y, z,
+      (Math.random() - 0.5) * 0.5, 0.1 + Math.random() * 0.3, (Math.random() - 0.5) * 0.5,
+      1.6 + Math.random() * 1.2, 0.92, 0.93, 0.95,
+    )
+  }
+
   /** 火区火焰粒子（橙焰 + 偶发黑烟） */
   flame(x: number, y: number, z: number) {
     const smoke = Math.random() < 0.25

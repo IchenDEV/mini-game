@@ -251,7 +251,7 @@ export class Game {
       // 运输机飞行与 AI 跳伞投放
       const pl = ctx.plane
       if (pl && !pl.done) {
-        pl.update(dt, ctx.scene)
+        pl.update(dt, ctx.scene, ctx.fx)
         for (const bot of ctx.bots) {
           if (bot.inPlane && (pl.s >= bot.jumpS || pl.done)) {
             bot.jumpOut(pl.x + Math.random() * 4 - 2, pl.alt - 3, pl.z + Math.random() * 4 - 2)
