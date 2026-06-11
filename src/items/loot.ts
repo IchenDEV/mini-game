@@ -36,11 +36,11 @@ interface Airdrop {
 }
 
 // ---------- 掉落表 ----------
-const CATS = ['weapon', 'ammo', 'med', 'armor', 'helmet', 'bag', 'attach', 'boost', 'nade'] as const
+const CATS = ['weapon', 'ammo', 'med', 'armor', 'helmet', 'bag', 'attach', 'boost', 'nade', 'fuel'] as const
 const CAT_W: Record<number, number[]> = {
-  1: [30, 21, 15, 7, 7, 6, 4, 5, 5],
-  2: [30, 19, 13, 9, 9, 6, 6, 4, 4],
-  3: [30, 17, 12, 10, 10, 6, 8, 3, 4],
+  1: [30, 21, 15, 7, 7, 6, 4, 5, 5, 3],
+  2: [30, 19, 13, 9, 9, 6, 6, 4, 4, 2],
+  3: [30, 17, 12, 10, 10, 6, 8, 3, 4, 1],
 }
 const WEAPON_T: Record<number, [string, number][]> = {
   1: [['p9', 30], ['wasp', 22], ['backdraft', 20], ['raptor', 18], ['vista', 7], ['longfang', 3]],
@@ -73,8 +73,32 @@ const AMMO_T: Record<number, [AmmoType, number][]> = {
   3: [['light', 24], ['rifle', 44], ['sniper', 20], ['shell', 12]],
 }
 
+/**
+ * lootDistribution：不同地图主题的武器权重偏置。
+ * 沙漠强化狙击/DMR（远距交火），雨林强化霰弹/冲锋（近战遭遇）。
+ */
+const BIOME_WEAPON_BIAS: Record<string, Record<string, number>> = {
+  grassland: {},
+  desert: { vista: 1.8, longfang: 2.0, raptor: 1.1, backdraft: 0.5, wasp: 0.6 },
+  jungle: { backdraft: 2.1, wasp: 1.7, p9: 1.2, vista: 0.5, longfang: 0.35 },
+}
+const BIOME_NADE_BIAS: Record<string, Record<string, number>> = {
+  grassland: {},
+  desert: { smoke: 1.3 },
+  jungle: { smoke: 1.6, frag: 1.2 },
+}
+const BIOME_AMMO_BIAS: Record<string, Partial<Record<AmmoType, number>>> = {
+  grassland: {},
+  desert: { sniper: 1.8 },
+  jungle: { shell: 1.8, light: 1.3, sniper: 0.5 },
+}
+
 function pickWeighted<T>(rng: RNG, table: [T, number][]): T {
   return table[rng.weighted(table.map((e) => e[1]))][0]
+}
+
+function biased<T extends string>(table: [T, number][], bias: Record<string, number>): [T, number][] {
+  return table.map(([id, w]) => [id, w * (bias[id] ?? 1)] as [T, number])
 }
 
 // ---------- 物品图标 ----------
@@ -100,15 +124,26 @@ export class LootSystem {
   private nextId = 1
   private rng = new RNG((Date.now() % 100000) + 7)
   private time = 0
+  private wBias: Record<string, number>
+  private nBias: Record<string, number>
+  private aBias: Partial<Record<AmmoType, number>>
 
   constructor(private scene: THREE.Scene, private world: World, private fx: Effects) {
     scene.add(this.group)
+    const biomeId = world.biome.id
+    this.wBias = BIOME_WEAPON_BIAS[biomeId] ?? {}
+    this.nBias = BIOME_NADE_BIAS[biomeId] ?? {}
+    this.aBias = BIOME_AMMO_BIAS[biomeId] ?? {}
   }
 
   // ---------- 生成 ----------
 
   spawnInitial() {
     for (const pt of this.world.lootPoints) {
+      if (pt.fixedItem) {
+        if (this.rng.chance(0.9)) this.spawnItem(pt.x, pt.y, pt.z, pt.fixedItem, 1)
+        continue
+      }
       if (!this.rng.chance(0.85)) continue
       this.rollAt(pt.x, pt.y, pt.z, Math.min(3, Math.max(1, pt.tier)))
     }
@@ -118,14 +153,14 @@ export class LootSystem {
     const cat = CATS[this.rng.weighted(CAT_W[tier])]
     switch (cat) {
       case 'weapon': {
-        const id = pickWeighted(this.rng, WEAPON_T[tier])
+        const id = pickWeighted(this.rng, biased(WEAPON_T[tier], this.wBias))
         if (id === 'pan') { this.spawnItem(x, y, z, 'pan_item', 1); break }
         const rarity = this.rng.weighted(RARITY_T[tier]) as Rarity
         this.spawnWeapon(x, y, z, id, rarity, true)
         break
       }
       case 'ammo': {
-        const t = pickWeighted(this.rng, AMMO_T[tier])
+        const t = pickWeighted(this.rng, biased(AMMO_T[tier], this.aBias as Record<string, number>))
         this.spawnAmmo(x, y, z, t, AMMO_META[t].stack * this.rng.int(1, 2))
         break
       }
@@ -135,7 +170,8 @@ export class LootSystem {
       case 'bag': this.spawnItem(x, y, z, `bag${this.rng.weighted(LEVEL_T[tier]) + 1}`, 1); break
       case 'attach': this.spawnItem(x, y, z, pickWeighted(this.rng, ATTACH_T), 1); break
       case 'boost': this.spawnItem(x, y, z, this.rng.chance(tier === 3 ? 0.5 : 0.7) ? 'drink' : 'pills', 1); break
-      case 'nade': this.spawnItem(x, y, z, pickWeighted(this.rng, NADE_T), 1); break
+      case 'nade': this.spawnItem(x, y, z, pickWeighted(this.rng, biased(NADE_T, this.nBias)), 1); break
+      case 'fuel': this.spawnItem(x, y, z, 'fuelcan', 1); break
     }
   }
 
@@ -272,6 +308,11 @@ export class LootSystem {
         add(new THREE.BoxGeometry(0.05, 0.04, 0.22), 0x2e3338, 0, 0, 0.22)
         break
       }
+      case 'fuel':
+        add(new THREE.BoxGeometry(0.26, 0.32, 0.16), 0xb33a30)
+        add(new THREE.BoxGeometry(0.14, 0.05, 0.1), 0x8a2c24, 0, 0.18, 0)
+        add(new THREE.CylinderGeometry(0.03, 0.03, 0.08, 6), 0x3c4045, 0.09, 0.2, 0)
+        break
       default:
         add(new THREE.BoxGeometry(0.2, 0.2, 0.2), 0x8a8a8a)
     }

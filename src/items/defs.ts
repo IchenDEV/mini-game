@@ -99,7 +99,7 @@ export const ARMOR_REDUCE = [0, 0.3, 0.4, 0.5]
 export const ARMOR_DURABILITY = [0, 80, 120, 180]
 export const BAG_CAPACITY = [70, 110, 150, 200]
 
-export type ItemKind = 'ammo' | 'med' | 'boost' | 'armor' | 'helmet' | 'bag' | 'attach' | 'nade' | 'meleeWeapon'
+export type ItemKind = 'ammo' | 'med' | 'boost' | 'armor' | 'helmet' | 'bag' | 'attach' | 'nade' | 'meleeWeapon' | 'fuel'
 
 export interface ItemDef {
   id: string
@@ -149,6 +149,7 @@ export const ITEMS: Record<string, ItemDef> = {
   smoke: { id: 'smoke', kind: 'nade', name: '烟雾弹', w: 7, nadeType: 'smoke' },
   flash: { id: 'flash', kind: 'nade', name: '闪光弹', w: 7, nadeType: 'flash' },
   pan_item: { id: 'pan_item', kind: 'meleeWeapon', name: '铸铁平底锅', w: 6 },
+  fuelcan: { id: 'fuelcan', kind: 'fuel', name: '汽油桶', w: 12 },
 }
 
 export const ammoItemName = (t: AmmoType) => AMMO_META[t].name

@@ -63,6 +63,12 @@ export class HUD {
     $('hud').classList.remove('hidden')
   }
 
+  /** 顶栏显示当前地图名 */
+  setMapName(name: string) {
+    const el = document.getElementById('map-pill')
+    if (el) el.textContent = name
+  }
+
   banner(text: string, cls: 'amber' | 'danger' | '' = '', dur = 2.4) {
     this.bannerEl.textContent = text
     this.bannerEl.className = `show ${cls}`
@@ -255,12 +261,24 @@ export class HUD {
       if (this.bannerT <= 0) this.bannerEl.classList.remove('show')
     }
 
-    // 拾取/跳伞提示
+    // 拾取/跳伞/载具提示
     if (ctx.state === 'plane') {
       this.promptShow(`<b>空格</b> 跳伞`)
+    } else if (p.vehicle) {
+      const v = p.vehicle
+      const kmh = Math.round(Math.abs(v.speed) * 3.6)
+      const fuel = Math.round(v.fuel)
+      const fuelCls = fuel <= 15 ? 'fuel-low' : ''
+      this.promptShow(
+        `<span class="drive-speed">${kmh}</span> km/h · ` +
+        `<span class="${fuelCls}">⛽ ${fuel}%</span> · <b>F</b> 下车`,
+      )
     } else if (p.nearLoot && !p.dropping) {
       const colorCls = `r${p.nearLoot.rarity}`
       this.promptShow(`<b>E</b> 拾取 <span class="${colorCls}">${p.nearLoot.name}</span>`)
+    } else if (p.nearVehicle && !p.dropping) {
+      const fuel = Math.round(p.nearVehicle.fuel)
+      this.promptShow(`<b>F</b> 驾驶越野车 <span class="dim">(油量 ${fuel}%)</span>`)
     } else this.promptHide()
 
     // 施法条
@@ -297,14 +315,15 @@ export class HUD {
     }
 
     this.minimapCoord.textContent = `${Math.round(p.pos.x)} , ${Math.round(p.pos.z)}`
-    this.drawMap(this.minimapC, ctx, 0.62, true)
-    if (this.fullmapOpen) this.drawMap(this.fullmapC, ctx, this.fullmapC.width / 820, false)
+    this.drawMap(this.minimapC, ctx, 0.55, true)
+    if (this.fullmapOpen) this.drawMap(this.fullmapC, ctx, this.fullmapC.width / (ctx.world.half * 2 + 30), false)
   }
 
   private drawMap(canvas: HTMLCanvasElement, ctx: Ctx, pxPerM: number, followPlayer: boolean) {
     const g = canvas.getContext('2d')!
     const W = canvas.width, H = canvas.height
     const p = ctx.player
+    const half = ctx.world.half
     const cx = followPlayer ? p.pos.x : 0
     const cz = followPlayer ? p.pos.z : 0
     g.clearRect(0, 0, W, H)
@@ -312,10 +331,10 @@ export class HUD {
     g.fillRect(0, 0, W, H)
 
     const base = ctx.world.minimap
-    const baseScale = base.width / 800 // px per meter in base
+    const baseScale = base.width / (half * 2) // px per meter in base
     const viewMeters = W / pxPerM
-    const sx = (cx + 400 - viewMeters / 2) * baseScale
-    const sy = (cz + 400 - viewMeters / 2) * baseScale
+    const sx = (cx + half - viewMeters / 2) * baseScale
+    const sy = (cz + half - viewMeters / 2) * baseScale
     const sw = viewMeters * baseScale
     g.imageSmoothingEnabled = true
     g.drawImage(base, sx, sy, sw, sw, 0, 0, W, H)
@@ -380,6 +399,34 @@ export class HUD {
         g.fill()
         g.restore()
       }
+    }
+
+    // POI 名称（按资源等级着色：金=高级 / 橙=中级 / 白=普通）
+    const fs = followPlayer ? 11 : Math.max(10, Math.round(W / 56))
+    g.font = `bold ${fs}px sans-serif`
+    g.textAlign = 'center'
+    for (const poi of ctx.world.pois) {
+      const [px1, py1] = toC(poi.x, poi.z)
+      if (px1 < -40 || px1 > W + 40 || py1 < -20 || py1 > H + 20) continue
+      g.fillStyle = 'rgba(0,0,0,0.65)'
+      g.fillText(poi.name, px1 + 1, py1 - 5)
+      g.fillStyle = poi.tier >= 3 ? '#ffd45e' : poi.tier === 2 ? '#ffb27a' : '#f0ead8'
+      g.fillText(poi.name, px1, py1 - 6)
+    }
+
+    // 载具
+    for (const v of ctx.vehicles) {
+      const [vx, vy] = toC(v.pos.x, v.pos.z)
+      if (vx < -8 || vx > W + 8 || vy < -8 || vy > H + 8) continue
+      g.save()
+      g.translate(vx, vy)
+      g.rotate(Math.atan2(Math.sin(v.yaw), -Math.cos(v.yaw)))
+      g.fillStyle = v.occupied ? '#9fd0ff' : '#d8e6f0'
+      g.strokeStyle = 'rgba(0,0,0,0.6)'
+      g.lineWidth = 1
+      g.fillRect(-2.6, -4, 5.2, 8)
+      g.strokeRect(-2.6, -4, 5.2, 8)
+      g.restore()
     }
 
     // 空投

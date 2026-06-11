@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { Character, buildChute } from './character'
+import { Character } from './character'
 import { WeaponInst } from '../combat/weapon'
 import { WEAPONS, ARMOR_DURABILITY, weaponScore, Rarity } from '../items/defs'
 import type { Ctx } from '../core/ctx'
@@ -55,7 +55,8 @@ export class Bot extends Character {
   jumpS = 0
   inPlane = true
   private dropTarget = { x: 0, z: 0 }
-  private chute: THREE.Group | null = null
+  /** 远端低频模拟的 dt 累积 */
+  private lowAcc = 0
 
   constructor(rngSeed: number) {
     super()
@@ -99,8 +100,7 @@ export class Bot extends Character {
     this.inPlane = false
     this.pos.set(x, y, z)
     this.model.visible = true
-    this.chute = buildChute(this.rng.pick([0xc9a23f, 0x8a9a4a, 0x4a7a9a, 0x9a5a4a]))
-    this.model.add(this.chute)
+    this.attachChute(this.rng.pick([0xc9a23f, 0x8a9a4a, 0x4a7a9a, 0x9a5a4a]))
   }
 
   /** 跳伞下落：朝预定落点漂移 */
@@ -110,7 +110,7 @@ export class Bot extends Character {
     const d = Math.hypot(dx, dz)
     const g = ctx.world.col.groundAt(this.pos.x, this.pos.z, this.pos.y)
     const high = this.pos.y - g > 42
-    if (this.chute) this.chute.visible = !high
+    this.setChuteVisible(!high)
     const hs = high ? 13 : 6.5
     if (d > 1.5) {
       this.vel.x = damp(this.vel.x, (dx / d) * Math.min(hs, d * 1.5), 2.2, dt)
@@ -127,18 +127,28 @@ export class Bot extends Character {
       this.vel.set(0, 0, 0)
       this.dropping = false
       this.onGround = true
-      if (this.chute) { this.model.remove(this.chute); this.chute = null }
+      this.detachChute()
       ctx.fx.dust(this.pos.x, this.pos.y, this.pos.z, 10)
     }
     this.animate(dt)
-    this.legL.rotation.x = 0.35
-    this.legR.rotation.x = -0.25
   }
 
   update(dt: number, ctx: Ctx) {
     if (!this.alive) return
     if (this.inPlane) return
     if (this.dropping) { this.updateDrop(dt, ctx); return }
+
+    // aiSpawnSystem：远离玩家的 AI 低频模拟（累积 dt，约 4Hz 更新）
+    const pdx = this.pos.x - ctx.player.pos.x
+    const pdz = this.pos.z - ctx.player.pos.z
+    if (pdx * pdx + pdz * pdz > 350 * 350) {
+      this.lowAcc += dt
+      if (this.lowAcc < 0.22) return
+      dt = Math.min(this.lowAcc, 0.34)
+      this.lowAcc = 0
+    } else {
+      this.lowAcc = 0
+    }
     const t = ctx.time
 
     if (t < this.stunnedUntil) {
@@ -306,7 +316,8 @@ export class Bot extends Character {
     const zt = ctx.zone.target
     const a = this.rng.range(0, Math.PI * 2)
     const r = Math.sqrt(this.rng.next()) * zt.r * 0.78
-    return { x: clamp(zt.x + Math.cos(a) * r, -360, 360), z: clamp(zt.z + Math.sin(a) * r, -360, 360) }
+    const lim = ctx.world.play - 20
+    return { x: clamp(zt.x + Math.cos(a) * r, -lim, lim), z: clamp(zt.z + Math.sin(a) * r, -lim, lim) }
   }
 
   private pickWanderPoint(ctx: Ctx): { x: number; z: number } {
@@ -335,7 +346,8 @@ export class Bot extends Character {
       if (c === this || !c.alive) continue
       if (c.dropping) continue
       const d = dist2D(this.pos.x, this.pos.z, c.pos.x, c.pos.z)
-      let range = 95 * clamp(this.skill, 0.8, 1.15)
+      // 视野随生物群系调整：沙漠开阔更远，雨林茂密更近
+      let range = 95 * clamp(this.skill, 0.8, 1.15) * ctx.world.biome.aiVisionMul
       if (c.crouching) range *= 0.55
       if (c.sprinting) range *= 1.15
       if (d > range || d > bestD) continue
@@ -383,6 +395,7 @@ export class Bot extends Character {
     const t = ctx.time
     this.wishX = 0; this.wishZ = 0; this.wishSpeed = 0
     this.sprinting = false
+    this.poseAiming = this.state === 'combat' && this.target !== null
 
     // 换弹完成
     if (this.pendReload > 0 && t >= this.pendReload) {
@@ -490,6 +503,7 @@ export class Bot extends Character {
       this.yaw = dampAngle(this.yaw, faceYaw, 12, dt)
       if (dist < this.meleeDef.range + 0.2 && t - this.meleeLastT > 60 / this.meleeDef.rpm) {
         this.meleeLastT = t
+        this.triggerPunch()
         ctx.combat.melee(ctx, this)
       }
       return

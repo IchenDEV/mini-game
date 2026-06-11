@@ -44,6 +44,8 @@ body.locked { cursor: none; }
 }
 .pill .ico { font-size: 10px; opacity: 0.7; }
 .pill.amber { color: var(--amber); }
+.pill.dim { color: var(--fg-dim); font-size: 12px; }
+.pill.dim:empty { display: none; }
 #zone-pill #zone-timer { font-variant-numeric: tabular-nums; font-weight: 700; }
 #zone-pill.warn { color: #ffd166; border-color: rgba(255, 209, 102, 0.5); }
 #zone-pill.danger { color: var(--danger); border-color: rgba(229, 72, 77, 0.6); animation: pulse 1s infinite; }
@@ -129,6 +131,9 @@ body.locked { cursor: none; }
 }
 #prompt b { color: var(--amber); border: 1px solid var(--amber); border-radius: 3px; padding: 0 5px; margin-right: 7px; font-size: 12px; }
 #prompt .full { color: var(--danger); }
+#prompt .drive-speed { font-size: 18px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+#prompt .fuel-low { color: var(--danger); animation: pulse 1s infinite; }
+#prompt .dim { color: var(--fg-dim); font-size: 12px; }
 
 /* ---------- 施法条 ---------- */
 #castbar { left: 50%; bottom: 24%; transform: translateX(-50%); width: 240px; text-align: center; }
@@ -137,7 +142,7 @@ body.locked { cursor: none; }
 #cast-fill { height: 100%; width: 0%; background: var(--amber); }
 
 /* ---------- 左下生命区 ---------- */
-#vitals { left: 50%; bottom: 26px; transform: translateX(-50%); width: 380px; }
+#vitals { left: 50%; bottom: 56px; transform: translateX(-50%); width: 380px; }
 #vitals .bar { position: relative; border: 1px solid var(--panel-border); background: rgba(0,0,0,0.5); border-radius: 3px; overflow: hidden; margin-top: 4px; }
 #vitals .bar.hp { height: 17px; }
 #vitals .bar.armor { height: 6px; }
@@ -250,6 +255,56 @@ body.locked { cursor: none; }
 #end-stats b { color: var(--fg); font-variant-numeric: tabular-nums; }
 
 /* ---------- 载入 ---------- */
+/* ---------- 地图选择 ---------- */
+#map-select {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(48, 72, 56, 0.35), transparent 55%),
+    radial-gradient(ellipse at 75% 80%, rgba(86, 64, 36, 0.3), transparent 55%),
+    #0c0f12;
+}
+.map-card {
+  text-align: center;
+  max-width: 860px;
+  width: calc(100% - 48px);
+}
+.map-card h1 { font-size: 38px; letter-spacing: 0.42em; margin-bottom: 8px; text-indent: 0.42em; }
+.ms-sub { color: var(--fg-dim); letter-spacing: 0.3em; font-size: 12px; margin-bottom: 34px; }
+.map-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+.map-grid button {
+  position: relative;
+  text-align: left;
+  padding: 20px 22px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  cursor: pointer;
+  color: var(--fg);
+  font-family: inherit;
+  transition: transform 0.12s, border-color 0.12s, filter 0.12s;
+  overflow: hidden;
+}
+.map-grid button:hover { transform: translateY(-3px); border-color: rgba(240, 179, 92, 0.7); filter: brightness(1.12); }
+.map-grid button b { display: block; font-size: 21px; letter-spacing: 0.18em; margin-bottom: 4px; }
+.map-grid button i {
+  position: absolute; top: 16px; right: 18px;
+  font-style: normal; font-size: 11px; letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 4px; padding: 3px 8px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.map-grid button span { display: block; font-size: 12px; color: rgba(255, 255, 255, 0.72); letter-spacing: 0.06em; }
+.ms-grass { background: linear-gradient(135deg, #2c4226 0%, #1d2c1c 60%, #16201a 100%); }
+.ms-desert { background: linear-gradient(135deg, #5d4a28 0%, #3c3120 60%, #281f16 100%); }
+.ms-jungle { background: linear-gradient(135deg, #1c3a2e 0%, #142822 60%, #101c18 100%); }
+.ms-random { background: linear-gradient(135deg, #32363e 0%, #22262c 60%, #181b20 100%); }
+.ms-foot { margin-top: 26px; font-size: 11px; color: var(--fg-dim); letter-spacing: 0.22em; }
+
 #loading {
   position: fixed; inset: 0; z-index: 50; background: #0c0f12;
   display: flex; align-items: center; justify-content: center;

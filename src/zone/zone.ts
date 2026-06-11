@@ -2,54 +2,49 @@ import * as THREE from 'three'
 import type { Ctx } from '../core/ctx'
 import { RNG } from '../utils/rng'
 import { lerp } from '../utils/math'
-
-interface Phase { r: number; wait: number; shrink: number; dps: number }
-
-export const PHASES: Phase[] = [
-  { r: 330, wait: 45, shrink: 24, dps: 1 },
-  { r: 225, wait: 36, shrink: 21, dps: 2 },
-  { r: 150, wait: 30, shrink: 18, dps: 4 },
-  { r: 95, wait: 26, shrink: 15, dps: 7 },
-  { r: 55, wait: 22, shrink: 13, dps: 10 },
-  { r: 26, wait: 18, shrink: 11, dps: 13 },
-  { r: 0.01, wait: 14, shrink: 40, dps: 16 },
-]
+import type { ZonePhase } from '../world/mapConfig'
 
 interface Circle { x: number; z: number; r: number }
 
-/** 安全区/缩圈系统 */
+/**
+ * safeZoneSystem：缩圈节奏由地图配置（zonePhases）驱动，
+ * 大地图前期等待更长、中后期逐渐加快。
+ */
 export class SafeZone {
   idx = 0
   mode: 'wait' | 'shrink' | 'done' = 'wait'
-  tLeft = PHASES[0].wait
+  tLeft: number
   cur: Circle
   target: Circle
+  private phases: ZonePhase[]
   private start: Circle
   private wall: THREE.Mesh
   private rng: RNG
   private outsideBeepT = 0
 
-  constructor(scene: THREE.Scene, rng: RNG) {
+  constructor(scene: THREE.Scene, rng: RNG, phases: ZonePhase[], spread: number) {
     this.rng = rng
+    this.phases = phases
+    this.tLeft = phases[0].wait
     const a = rng.range(0, Math.PI * 2)
-    const d = rng.range(0, 30)
-    this.cur = { x: Math.cos(a) * d, z: Math.sin(a) * d + 10, r: PHASES[0].r }
+    const d = rng.range(0, spread)
+    this.cur = { x: Math.cos(a) * d, z: Math.sin(a) * d, r: phases[0].r }
     this.start = { ...this.cur }
     this.target = this.computeNext()
 
-    const geo = new THREE.CylinderGeometry(1, 1, 260, 72, 1, true)
+    const geo = new THREE.CylinderGeometry(1, 1, 520, 72, 1, true)
     const mat = new THREE.MeshBasicMaterial({
       color: 0x57b8ff, transparent: true, opacity: 0.14,
       side: THREE.DoubleSide, depthWrite: false,
     })
     this.wall = new THREE.Mesh(geo, mat)
-    this.wall.position.y = 110
+    this.wall.position.y = 240
     scene.add(this.wall)
     this.updateWall()
   }
 
   private computeNext(): Circle {
-    const next = PHASES[Math.min(this.idx + 1, PHASES.length - 1)]
+    const next = this.phases[Math.min(this.idx + 1, this.phases.length - 1)]
     const margin = Math.max(0, this.cur.r - next.r)
     const a = this.rng.range(0, Math.PI * 2)
     const d = Math.sqrt(this.rng.next()) * margin * 0.85
@@ -57,7 +52,7 @@ export class SafeZone {
   }
 
   get dps(): number {
-    return PHASES[Math.min(this.idx, PHASES.length - 1)].dps
+    return this.phases[Math.min(this.idx, this.phases.length - 1)].dps
   }
 
   outside(x: number, z: number): boolean {
@@ -75,17 +70,17 @@ export class SafeZone {
     if (this.mode !== 'done') {
       this.tLeft -= dt
       if (this.mode === 'wait' && this.tLeft <= 0) {
-        if (this.idx >= PHASES.length - 1) {
+        if (this.idx >= this.phases.length - 1) {
           this.mode = 'done'
         } else {
           this.mode = 'shrink'
-          this.tLeft = PHASES[this.idx + 1].shrink
+          this.tLeft = this.phases[this.idx + 1].shrink
           this.start = { ...this.cur }
           ctx.sfx.zoneAlert()
           ctx.hud.banner('安全区正在缩小！', 'danger', 2.6)
         }
       } else if (this.mode === 'shrink') {
-        const dur = PHASES[this.idx + 1].shrink
+        const dur = this.phases[this.idx + 1].shrink
         const k = 1 - Math.max(0, this.tLeft) / dur
         this.cur.x = lerp(this.start.x, this.target.x, k)
         this.cur.z = lerp(this.start.z, this.target.z, k)
@@ -93,11 +88,11 @@ export class SafeZone {
         if (this.tLeft <= 0) {
           this.idx++
           this.cur = { ...this.target }
-          if (this.idx >= PHASES.length - 1) {
+          if (this.idx >= this.phases.length - 1) {
             this.mode = 'done'
           } else {
             this.mode = 'wait'
-            this.tLeft = PHASES[this.idx].wait
+            this.tLeft = this.phases[this.idx].wait
             this.target = this.computeNext()
           }
         }

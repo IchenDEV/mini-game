@@ -14,11 +14,14 @@ export class PlaneRide {
   alt = 150
   done = false
 
-  constructor(scene: THREE.Scene, angle: number, offX: number, offZ: number) {
+  constructor(scene: THREE.Scene, angle: number, offX: number, offZ: number, mapHalf = 400, alt = 150, speed = 55) {
     this.dirX = Math.cos(angle)
     this.dirZ = Math.sin(angle)
-    this.sx = offX - this.dirX * 550
-    this.sz = offZ - this.dirZ * 550
+    this.len = mapHalf * 2.4
+    this.alt = alt
+    this.speed = speed
+    this.sx = offX - this.dirX * this.len * 0.5
+    this.sz = offZ - this.dirZ * this.len * 0.5
     this.buildMesh()
     scene.add(this.mesh)
     this.place()

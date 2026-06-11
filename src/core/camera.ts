@@ -20,11 +20,15 @@ export class TPCamera {
     const p = ctx.player
     const cam = ctx.camera
 
-    const fpp = this.firstPerson && p.alive && !p.dropping && ctx.state === 'play'
+    const fpp = this.firstPerson && p.alive && !p.dropping && !p.vehicle && ctx.state === 'play'
     let targetFov = 70
     let targetBoom = fpp ? 0 : 4.0
     let targetSide = fpp ? 0 : -0.55
-    if (p.dropping) {
+    if (p.vehicle) {
+      targetBoom = 6.8
+      targetSide = 0
+      targetFov = 76
+    } else if (p.dropping) {
       targetBoom = 6.5
       targetFov = 78
     } else if (p.ads && p.currentWeapon()) {
@@ -39,7 +43,7 @@ export class TPCamera {
     cam.fov = this.curFov
     cam.updateProjectionMatrix()
 
-    // 第一人称：拉近后隐藏自身模型（机上也隐藏；死亡尸体始终可见）
+    // 第一人称：拉近后隐藏自身模型（机上隐藏；驾车时展示坐姿；死亡尸体始终可见）
     p.model.visible = p.alive ? !p.inPlane && this.boom > 0.55 : true
 
     const cp = Math.cos(p.pitch)

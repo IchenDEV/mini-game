@@ -71,7 +71,10 @@ export class InventoryUI {
       for (const [id, n] of inv.items) {
         const def = ITEMS[id]
         if (!def) continue
-        const useLabel = def.kind === 'med' || def.kind === 'boost' ? '使用' : def.kind === 'attach' ? '安装' : def.kind === 'nade' ? '选用' : ''
+        const useLabel = def.kind === 'med' || def.kind === 'boost' ? '使用'
+          : def.kind === 'attach' ? '安装'
+          : def.kind === 'nade' ? '选用'
+          : def.kind === 'fuel' ? '加油' : ''
         rows.push(
           `<div class="inv-row"><span class="nm">${def.name}</span><span class="ct">×${n}</span>` +
           (useLabel ? `<button data-act="use" data-id="${id}">${useLabel}</button>` : '') +

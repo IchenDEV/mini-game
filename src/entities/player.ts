@@ -1,11 +1,12 @@
 import * as THREE from 'three'
-import { Character, buildChute } from './character'
+import { Character } from './character'
 import { Inventory } from '../items/inventory'
 import { WeaponInst } from '../combat/weapon'
 import { WEAPONS, FISTS, ITEMS, ARMOR_DURABILITY, Rarity } from '../items/defs'
 import type { Ctx } from '../core/ctx'
 import type { GroundItem } from '../items/loot'
-import { clamp, damp, DEG } from '../utils/math'
+import type { Vehicle } from '../world/vehicle'
+import { clamp, damp, dist2D, DEG } from '../utils/math'
 
 const _camDir = new THREE.Vector3()
 const _muzzle = new THREE.Vector3()
@@ -32,11 +33,12 @@ export class Player extends Character {
   fastDrop = false
   casting: Casting | null = null
   nearLoot: GroundItem | null = null
+  vehicle: Vehicle | null = null
+  nearVehicle: Vehicle | null = null
   surviveStart = 0
   bloom = 0
   private switchLockUntil = 0
   private pendingReload: { w: WeaponInst; end: number } | null = null
-  private chute: THREE.Group | null = null
   private stepAcc = 0
   private sens = 0.0023
   blockInput = false
@@ -60,9 +62,7 @@ export class Player extends Character {
     this.inPlane = false
     this.pos.set(x, y, z)
     this.model.visible = true
-    const chute = buildChute()
-    this.model.add(chute)
-    this.chute = chute
+    this.attachChute(0xc9a23f)
   }
 
   currentWeapon(): WeaponInst | null {
@@ -207,14 +207,14 @@ export class Player extends Character {
     if (dl > 1) { dx /= dl; dz /= dl }
 
     this.fastDrop = input.key('KeyF') || input.key('ShiftLeft')
-    if (this.chute) this.chute.visible = !this.fastDrop
+    this.setChuteVisible(!this.fastDrop)
     this.vel.x = damp(this.vel.x, dx * 15, 2.4, dt)
     this.vel.z = damp(this.vel.z, dz * 15, 2.4, dt)
     this.vel.y = damp(this.vel.y, this.fastDrop ? -36 : -10.5, 2.4, dt)
 
     this.pos.addScaledVector(this.vel, dt)
-    this.pos.x = clamp(this.pos.x, -380, 380)
-    this.pos.z = clamp(this.pos.z, -380, 380)
+    this.pos.x = clamp(this.pos.x, -ctx.world.play, ctx.world.play)
+    this.pos.z = clamp(this.pos.z, -ctx.world.play, ctx.world.play)
 
     const g = ctx.world.col.groundAt(this.pos.x, this.pos.z, this.pos.y)
     if (this.pos.y <= g + 0.05) {
@@ -223,22 +223,20 @@ export class Player extends Character {
       this.dropping = false
       this.onGround = true
       this.surviveStart = ctx.time
-      if (this.chute) { this.model.remove(this.chute); this.chute = null }
+      this.detachChute()
       ctx.sfx.land()
       ctx.fx.addShake(0.4)
       ctx.fx.dust(this.pos.x, this.pos.y, this.pos.z, 14)
       ctx.hud.banner('已着陆 — 搜刮装备，留意安全区', 'amber', 3)
     }
     this.animate(dt)
-    // 跳伞期间身体下垂姿态
-    this.legL.rotation.x = 0.35
-    this.legR.rotation.x = -0.25
   }
 
   // ---------------- 战斗主循环 ----------------
 
   updatePlay(dt: number, ctx: Ctx) {
     if (!this.alive) return
+    if (this.vehicle) { this.updateDrive(dt, ctx); return }
     const input = ctx.input
     const t = ctx.time
     const w = this.currentWeapon()
@@ -260,6 +258,8 @@ export class Player extends Character {
 
     this.ads = !this.blockInput && input.rmb && this.slot <= 2 && w !== null
     this.sprinting = input.key('ShiftLeft') && fwd > 0 && !this.ads && !this.crouching
+    // 举枪姿态：瞄准中或刚开过枪
+    this.poseAiming = this.ads || (w !== null && t - w.lastShot < 0.6)
 
     if (this.sprinting && this.casting) this.cancelCast(ctx)
 
@@ -334,18 +334,101 @@ export class Player extends Character {
       this.tryPickup(ctx, this.nearLoot)
     }
 
+    // 载具交互（F 上车）
+    this.nearVehicle = null
+    for (const v of ctx.vehicles) {
+      if (v.occupied) continue
+      if (dist2D(this.pos.x, this.pos.z, v.pos.x, v.pos.z) < 3.6 && Math.abs(this.pos.y - v.pos.y) < 3) {
+        this.nearVehicle = v
+        break
+      }
+    }
+    if (!this.blockInput && this.nearVehicle && input.pressed('KeyF')) {
+      this.enterVehicle(ctx, this.nearVehicle)
+      return
+    }
+
     this.bloom = Math.max(0, this.bloom - dt * 3.6)
     super.update(dt, ctx)
 
-    // 脚步声
+    // 脚步声 + 冲刺扬尘
     const hSpeed = Math.hypot(this.vel.x, this.vel.z)
     if (this.onGround && hSpeed > 1.2) {
       this.stepAcc += hSpeed * dt
       if (this.stepAcc > 2.4) {
         this.stepAcc = 0
         ctx.sfx.footstep(hSpeed / 7)
+        if (this.sprinting && !this.wading) ctx.fx.dust(this.pos.x, this.pos.y, this.pos.z, 2)
       }
     }
+  }
+
+  // ---------------- 载具 ----------------
+
+  enterVehicle(ctx: Ctx, v: Vehicle) {
+    this.vehicle = v
+    v.occupied = true
+    v.driver = this
+    this.seated = true
+    this.gunGroup.visible = false
+    this.crouching = false
+    this.ads = false
+    this.sprinting = false
+    this.poseAiming = false
+    this.cancelCast(ctx, false)
+    this.cancelReload()
+    this.nearLoot = null
+    this.nearVehicle = null
+    ctx.sfx.equip()
+    ctx.hud.notice('W/S 油门 · A/D 转向 · 空格 手刹 · F 下车')
+  }
+
+  exitVehicle(ctx: Ctx) {
+    const v = this.vehicle
+    if (!v) return
+    v.occupied = false
+    v.driver = null
+    this.vehicle = null
+    this.seated = false
+    this.lockYaw = null
+    this.gunGroup.visible = true
+    // 放在车体左侧
+    const sx = v.pos.x - Math.cos(v.yaw) * 2.3
+    const sz = v.pos.z + Math.sin(v.yaw) * 2.3
+    this.pos.set(sx, ctx.world.col.groundAt(sx, sz, v.pos.y + 1.2), sz)
+    this.vel.set(0, 0, 0)
+    this.model.visible = true
+  }
+
+  private updateDrive(dt: number, ctx: Ctx) {
+    const input = ctx.input
+    const v = this.vehicle!
+    if (!this.blockInput) {
+      const fovScale = ctx.camera.fov / 70
+      this.yaw -= input.mouseDX * this.sens * fovScale
+      this.pitch = clamp(this.pitch - input.mouseDY * this.sens * fovScale, -1.1, 1.2)
+    }
+    let thr = 0, steer = 0
+    if (input.key('KeyW')) thr++
+    if (input.key('KeyS')) thr--
+    if (input.key('KeyD')) steer++
+    if (input.key('KeyA')) steer--
+    v.drive(dt, ctx, thr, steer, input.key('Space'))
+    // 坐进驾驶位（车体局部 -x 侧座椅），模型朝向锁定车头
+    const lx = -0.45, lz = 0.02
+    this.pos.set(
+      v.pos.x + lx * Math.cos(v.yaw) + lz * Math.sin(v.yaw),
+      v.pos.y + 0.4,
+      v.pos.z - lx * Math.sin(v.yaw) + lz * Math.cos(v.yaw),
+    )
+    this.lockYaw = v.yaw
+    this.vel.set(0, 0, 0)
+    this.onGround = true
+    if (!this.blockInput && input.pressed('KeyF')) {
+      this.exitVehicle(ctx)
+      return
+    }
+    this.animate(dt)
   }
 
   private handleFire(ctx: Ctx, w: WeaponInst | null) {
@@ -357,6 +440,7 @@ export class Player extends Character {
         if (this.casting) { this.cancelCast(ctx); return }
         if (t - this.meleeLastT > 60 / this.meleeDef.rpm) {
           this.meleeLastT = t
+          this.triggerPunch()
           ctx.combat.melee(ctx, this)
           ctx.fx.addShake(0.08)
         }
@@ -552,6 +636,15 @@ export class Player extends Character {
     if (!def) return
     if (def.kind === 'med') { if (!this.casting) this.beginCast(ctx, itemId) }
     else if (def.kind === 'boost') { if (!this.casting) this.beginCast(ctx, itemId) }
+    else if (def.kind === 'fuel') {
+      const v = this.vehicle ?? this.nearVehicle
+      if (!v) { ctx.hud.notice('需要在载具旁或车上才能加油'); return }
+      if (v.fuel >= 99) { ctx.hud.notice('油箱已满'); return }
+      if (!this.inv.removeItem(itemId, 1)) return
+      v.fuel = Math.min(100, v.fuel + 60)
+      ctx.sfx.refuel()
+      ctx.hud.notice(`已加注燃油 — 油量 ${Math.round(v.fuel)}%`)
+    }
     else if (def.kind === 'attach') {
       const candidates = [this.currentWeapon(), this.primary[0], this.primary[1], this.sidearm]
       for (const cw of candidates) {

@@ -11,6 +11,7 @@ import type { Player } from '../entities/player'
 import type { Bot } from '../entities/bot'
 import type { Character } from '../entities/character'
 import type { PlaneRide } from '../world/plane'
+import type { Vehicle } from '../world/vehicle'
 
 export type GameState = 'plane' | 'drop' | 'play' | 'end'
 
@@ -35,6 +36,7 @@ export interface Ctx {
   input: Input
   player: Player
   plane: PlaneRide | null
+  vehicles: Vehicle[]
   bots: Bot[]
   chars: Character[]
   time: number

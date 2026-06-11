@@ -1,4 +1,9 @@
 import * as THREE from 'three'
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { World } from '../world/world'
 import { LootSystem } from '../items/loot'
 import { Effects } from '../fx/effects'
@@ -12,16 +17,49 @@ import { Player } from '../entities/player'
 import { Bot, botName } from '../entities/bot'
 import { Character } from '../entities/character'
 import { PlaneRide } from '../world/plane'
+import { Vehicle } from '../world/vehicle'
+import { MAPS, MapConfig } from '../world/mapConfig'
 import { TPCamera } from './camera'
 import { RNG } from '../utils/rng'
 import { clamp } from '../utils/math'
 import type { Ctx } from './ctx'
 
-const BOT_COUNT = 28
+/** 暗角 + 轻度色彩分级（提饱和、压灰），写实手游观感 */
+const GradeShader = {
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    uVignette: { value: 0.24 },
+    uSaturation: { value: 1.07 },
+    uContrast: { value: 1.03 },
+  },
+  vertexShader: /* glsl */ `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDiffuse;
+    uniform float uVignette;
+    uniform float uSaturation;
+    uniform float uContrast;
+    varying vec2 vUv;
+    void main() {
+      vec4 c = texture2D(tDiffuse, vUv);
+      float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+      c.rgb = mix(vec3(lum), c.rgb, uSaturation);
+      c.rgb = (c.rgb - 0.5) * uContrast + 0.5;
+      float d = distance(vUv, vec2(0.5));
+      c.rgb *= 1.0 - uVignette * smoothstep(0.38, 0.86, d);
+      gl_FragColor = c;
+    }`,
+}
 
 export class Game {
   private renderer: THREE.WebGLRenderer
+  private composer: EffectComposer
   private ctx: Ctx
+  private cfg: MapConfig
   private cam = new TPCamera()
   private invUI = new InventoryUI()
   private corpses: { ch: Character; t: number }[] = []
@@ -51,43 +89,73 @@ export class Game {
     }
   }
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, mapId = 'grassland') {
+    const cfg = MAPS[mapId] ?? MAPS.grassland
+    this.cfg = cfg
+    const biome = cfg.biome
+
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setSize(window.innerWidth, window.innerHeight)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.06
+    renderer.toneMappingExposure = 0.88
     container.appendChild(renderer.domElement)
     this.renderer = renderer
 
+    // 环境氛围由生物群系决定
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(0xc4d2dc)
-    scene.fog = new THREE.Fog(0xc4d2dc, 170, 760)
+    scene.background = new THREE.Color(biome.fogColor)
+    scene.fog = new THREE.Fog(biome.fogColor, biome.fogNear, biome.fogFar)
 
-    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1500)
-    camera.position.set(0, 160, 0)
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, cfg.half * 2.6)
+    camera.position.set(0, cfg.planeAlt + 10, 0)
 
-    const hemi = new THREE.HemisphereLight(0xd8e8f5, 0x5d6b4a, 0.85)
+    const hemi = new THREE.HemisphereLight(biome.hemiSky, biome.hemiGround, biome.hemiIntensity)
     scene.add(hemi)
-    const sun = new THREE.DirectionalLight(0xfff2dd, 2.1)
+    const sun = new THREE.DirectionalLight(biome.sunColor, biome.sunIntensity)
     sun.position.set(120, 190, 60)
     sun.castShadow = true
-    sun.shadow.mapSize.set(2048, 2048)
-    sun.shadow.camera.left = -120
-    sun.shadow.camera.right = 120
-    sun.shadow.camera.top = 120
-    sun.shadow.camera.bottom = -120
+    sun.shadow.mapSize.set(4096, 4096)
+    sun.shadow.camera.left = -130
+    sun.shadow.camera.right = 130
+    sun.shadow.camera.top = 130
+    sun.shadow.camera.bottom = -130
     sun.shadow.camera.near = 10
     sun.shadow.camera.far = 600
-    sun.shadow.bias = -0.0008
+    sun.shadow.bias = -0.0006
+    sun.shadow.normalBias = 0.02
+    sun.shadow.radius = 1.6
     scene.add(sun)
     scene.add(sun.target)
     this.sun = sun
+    // 天空漫反射补光：缓解背光面死黑（无阴影，低强度）
+    const fill = new THREE.DirectionalLight(0xc2d6e8, 0.24)
+    fill.position.set(-90, 55, -120)
+    scene.add(fill)
+
+    // 后处理：MSAA 渲染目标 + 泛光 + 暗角/色彩分级
+    const rtSamples = renderer.capabilities.isWebGL2 ? 4 : 0
+    const composer = new EffectComposer(
+      renderer,
+      new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+        samples: rtSamples, type: THREE.HalfFloatType,
+      }),
+    )
+    composer.addPass(new RenderPass(scene, camera))
+    // 注：GTAOPass 在本场景（数千独立网格 + MSAA RT）实测有 50 倍帧时间开销，
+    // 改为 world 侧烘焙式接触阴影贴花（见 World.buildContactAO）实现环境光遮蔽观感。
+    const bloom = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.5, 0.92,
+    )
+    composer.addPass(bloom)
+    composer.addPass(new ShaderPass(GradeShader))
+    composer.addPass(new OutputPass())
+    this.composer = composer
 
     // 世界与系统
-    const world = new World()
+    const world = new World(cfg)
     world.build(scene)
     const fx = new Effects(scene)
     const loot = new LootSystem(scene, world, fx)
@@ -97,21 +165,22 @@ export class Game {
     const hud = new HUD()
     const combat = new Combat()
     const rng = new RNG((Date.now() % 1000000007) + 11)
-    const zone = new SafeZone(scene, rng)
+    const zone = new SafeZone(scene, rng, cfg.zonePhases, cfg.half * 0.09)
     const player = new Player()
 
     // 运输机航线：随机方向，穿过安全区中心附近
     const plane = new PlaneRide(
       scene,
       rng.range(0, Math.PI * 2),
-      zone.cur.x + rng.range(-90, 90),
-      zone.cur.z + rng.range(-90, 90),
+      zone.cur.x + rng.range(-cfg.half * 0.2, cfg.half * 0.2),
+      zone.cur.z + rng.range(-cfg.half * 0.2, cfg.half * 0.2),
+      cfg.half, cfg.planeAlt, cfg.planeSpeed,
     )
 
     this.ctx = {
       scene, camera, world, loot, fx, sfx, zone, combat, hud, input, player, plane,
-      bots: [], chars: [], time: 0, state: 'plane', shots: [],
-      aliveCount: BOT_COUNT + 1, graceUntil: 40,
+      vehicles: [], bots: [], chars: [], time: 0, state: 'plane', shots: [],
+      aliveCount: cfg.botCount + 1, graceUntil: 40,
       kill: this.kill,
     }
 
@@ -124,16 +193,27 @@ export class Game {
       const j = rng.int(0, i)
       const tmp = spawns[i]; spawns[i] = spawns[j]; spawns[j] = tmp
     }
-    for (let i = 0; i < BOT_COUNT; i++) {
+    for (let i = 0; i < cfg.botCount; i++) {
       const bot = new Bot(rng.int(1, 1 << 30))
       bot.name = botName(i)
       const sp = spawns[i % spawns.length]
       bot.init(scene, sp.x + rng.range(-3, 3), sp.z + rng.range(-3, 3), this.ctx)
-      bot.jumpS = clamp(plane.sAtNearest(sp.x, sp.z) + rng.range(-40, 40), plane.len * 0.06, plane.len * 0.92)
+      bot.jumpS = clamp(plane.sAtNearest(sp.x, sp.z) + rng.range(-60, 60), plane.len * 0.06, plane.len * 0.94)
       this.ctx.bots.push(bot)
       this.ctx.chars.push(bot)
     }
     this.ctx.aliveCount = this.ctx.chars.length
+
+    // 载具
+    for (const vs of world.vehicleSpawns) {
+      const g = world.groundHeight(vs.x, vs.z)
+      this.ctx.vehicles.push(new Vehicle(scene, vs.x, vs.z, vs.yaw, g))
+    }
+
+    // 顶栏地图名 + 锁定卡片地图说明
+    hud.setMapName(`${cfg.name} · ${cfg.subtitle}`)
+    const lockSub = document.querySelector('#overlay-lock .lock-card p')
+    if (lockSub) lockSub.textContent = `${cfg.name} — ${cfg.subtitle}`
 
     // UI 接线
     document.getElementById('btn-lock')!.addEventListener('click', () => {
@@ -150,6 +230,7 @@ export class Game {
       camera.aspect = window.innerWidth / window.innerHeight
       camera.updateProjectionMatrix()
       renderer.setSize(window.innerWidth, window.innerHeight)
+      composer.setSize(window.innerWidth, window.innerHeight)
     })
 
     document.getElementById('loading')!.classList.add('hidden')
@@ -181,7 +262,7 @@ export class Game {
     const rank = win ? 1 : ctx.aliveCount + 1
     ctx.hud.showEnd(win, {
       rank,
-      total: BOT_COUNT + 1,
+      total: this.cfg.botCount + 1,
       kills: ctx.player.kills,
       dmg: ctx.player.damageDealt,
       time: Math.max(0, ctx.time - ctx.player.surviveStart),
@@ -258,6 +339,11 @@ export class Game {
       }
 
       for (const bot of ctx.bots) bot.update(dt, ctx)
+      // 无人载具滑行
+      for (const v of ctx.vehicles) {
+        if (!v.occupied) v.idle(dt, ctx)
+      }
+      ctx.sfx.engineTick(dt)
       ctx.combat.update(ctx, dt)
       if (ctx.state !== 'plane') ctx.zone.update(dt, ctx)
 
@@ -300,11 +386,15 @@ export class Game {
     this.sun.position.set(p.x + 120, p.y + 190, p.z + 60)
     this.sun.target.position.set(p.x, p.y, p.z)
 
+    // 玩家周围动态铺草（跨 cell 时重建）
+    this.ctx.world.updateGrass(p.x, p.z)
+
     this.cam.update(dt, ctx)
     ctx.fx.update(dt)
     ctx.loot.update(dt, ctx.time)
     ctx.sfx.setListener(ctx.camera.position, ctx.player.yaw)
     ctx.input.endFrame()
-    this.renderer.render(ctx.scene, ctx.camera)
+    ctx.world.windT.value += dt
+    this.composer.render()
   }
 }

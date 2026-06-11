@@ -184,6 +184,50 @@ export class Sfx {
     this.planeNodes = null
   }
 
+  // ---------------- 载具引擎循环 ----------------
+
+  private engineNodes: { o1: OscillatorNode; o2: OscillatorNode; g: GainNode } | null = null
+  private engineQuietT = 0
+
+  /** 驾驶时每帧调用：throttle 0-1 */
+  engineUpdate(pos: THREE.Vector3, throttle: number) {
+    if (!this.ctx || !this.master) return
+    if (!this.engineNodes) {
+      const o1 = this.ctx.createOscillator()
+      o1.type = 'sawtooth'
+      o1.frequency.value = 60
+      const o2 = this.ctx.createOscillator()
+      o2.type = 'square'
+      o2.frequency.value = 120
+      const f = this.ctx.createBiquadFilter()
+      f.type = 'lowpass'
+      f.frequency.value = 480
+      const g = this.ctx.createGain()
+      g.gain.value = 0
+      o1.connect(f); o2.connect(f)
+      f.connect(g)
+      g.connect(this.master)
+      o1.start(); o2.start()
+      this.engineNodes = { o1, o2, g }
+    }
+    const dist = Math.hypot(pos.x - this.listenerPos.x, pos.y - this.listenerPos.y, pos.z - this.listenerPos.z)
+    const att = Math.pow(clamp(1 - dist / 130, 0, 1), 1.4)
+    const rpm = 0.25 + throttle * 0.75
+    this.engineNodes.o1.frequency.setTargetAtTime(52 + rpm * 70, this.ctx.currentTime, 0.1)
+    this.engineNodes.o2.frequency.setTargetAtTime(104 + rpm * 140, this.ctx.currentTime, 0.1)
+    this.engineNodes.g.gain.setTargetAtTime(0.055 * (0.45 + rpm) * att, this.ctx.currentTime, 0.08)
+    this.engineQuietT = 0.3
+  }
+
+  /** 每帧衰减：未被驾驶时淡出 */
+  engineTick(dt: number) {
+    if (!this.engineNodes || !this.ctx) return
+    this.engineQuietT -= dt
+    if (this.engineQuietT <= 0) {
+      this.engineNodes.g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.25)
+    }
+  }
+
   // ---------------- 具体音效 ----------------
 
   shot(pos: THREE.Vector3 | null, cls: WClass, silenced = false) {
@@ -225,6 +269,18 @@ export class Sfx {
     this.tone(110, 0.14, 0.4, 0, 'triangle', 60)
   }
   armorBreak() { this.noise(0.2, 2800, 2, 0.5, 0, 'highpass') }
+  /** 载具碰撞/碾压闷响 */
+  crash(pos: THREE.Vector3 | null, strength = 1) {
+    const s = this.spatial(pos, 260)
+    if (!s) return
+    this.noise(0.28, 380, 0.9, s.vol * 0.85 * strength, s.pan)
+    this.tone(64, 0.22, s.vol * 0.5 * strength, s.pan, 'triangle', 34)
+  }
+  /** 加油声 */
+  refuel() {
+    this.noise(0.5, 700, 0.6, 0.22, 0, 'lowpass', 0.1)
+    this.tone(320, 0.3, 0.12, 0, 'sine', 460, 0.15)
+  }
   pickup() { this.tone(520, 0.07, 0.25, 0, 'sine', 780) }
   equip() { this.noise(0.07, 1200, 2, 0.3, 0, 'bandpass') }
   reload() {

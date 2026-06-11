@@ -15,6 +15,7 @@
       <div class="pill" id="zone-pill"><span id="zone-label">准备</span><span id="zone-timer">--</span></div>
       <div class="pill"><span class="ico">&#9650;</span><span id="alive-count">--</span> 存活</div>
       <div class="pill amber"><span class="ico">&#10006;</span><span id="kill-count">0</span> 击杀</div>
+      <div class="pill dim" id="map-pill"></div>
     </div>
 
     <!-- 小地图 -->
@@ -89,13 +90,40 @@
   <!-- 全屏地图 -->
   <div id="fullmap-wrap" class="hidden"><canvas id="fullmap" width="660" height="660"></canvas></div>
 
+  <!-- 地图选择 -->
+  <div id="map-select">
+    <div class="map-card">
+      <h1>孤圈行动</h1>
+      <p class="ms-sub">LAST CIRCLE · 选择作战地图</p>
+      <div class="map-grid">
+        <button data-map="grassland" class="ms-grass">
+          <b>绿野围城</b><i>草原 · 乡村</i>
+          <span>丘陵草地 / 村镇河道 — 中距交火与房区搜刮</span>
+        </button>
+        <button data-map="desert" class="ms-desert">
+          <b>烈日荒原</b><i>沙漠 · 远距</i>
+          <span>沙丘峡谷 / 干河公路 — 远距对狙与载具转移</span>
+        </button>
+        <button data-map="jungle" class="ms-jungle">
+          <b>雾林行动</b><i>雨林 · 近战</i>
+          <span>密林湿地 / 竹寨遗迹 — 近战遭遇与潜行伏击</span>
+        </button>
+        <button data-map="random" class="ms-random">
+          <b>随机地图</b><i>?</i>
+          <span>由系统抽取战场</span>
+        </button>
+      </div>
+      <div class="ms-foot">2.5km × 2.5km 大世界 · 12 个资源点 · 可驾驶载具</div>
+    </div>
+  </div>
+
   <!-- 点击锁定鼠标 -->
   <div id="overlay-lock" class="hidden">
     <div class="lock-card">
       <h1>孤圈行动</h1>
       <p>LAST CIRCLE · 生存射击原型</p>
       <button id="btn-lock">点击进入战场</button>
-      <div class="lock-hint">滑翔阶段：WASD 转向 · 按住 F 加速下坠</div>
+      <div class="lock-hint">机上：空格 跳伞 · 落地后 F 可驾驶越野车 · V 切换人称</div>
     </div>
   </div>
 
@@ -108,7 +136,7 @@
     </div>
   </div>
 
-  <div id="loading"><div class="load-inner"><h1>孤圈行动</h1><p>正在生成战场…</p></div></div>
+  <div id="loading" class="hidden"><div class="load-inner"><h1>孤圈行动</h1><p id="loading-map">正在生成战场…</p></div></div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>
