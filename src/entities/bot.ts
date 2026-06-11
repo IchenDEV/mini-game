@@ -6,6 +6,7 @@ import type { Ctx } from '../core/ctx'
 import type { GroundItem } from '../items/loot'
 import { RNG } from '../utils/rng'
 import { clamp, damp, dampAngle, dist2D } from '../utils/math'
+import { randomSkin } from '../content/skins'
 
 const _muzzle = new THREE.Vector3()
 const _dir = new THREE.Vector3()
@@ -66,8 +67,7 @@ export class Bot extends Character {
   }
 
   init(scene: THREE.Scene, x: number, z: number, ctx: Ctx) {
-    const palette = [0x6e6a55, 0x5d6657, 0x7a6248, 0x56606e, 0x6b5a5a, 0x4f5d52]
-    this.buildModel(scene, this.rng.pick(palette))
+    this.buildModel(scene, 0x6e6a55, randomSkin(() => this.rng.next()))
     this.dropTarget.x = x + this.rng.range(-18, 18)
     this.dropTarget.z = z + this.rng.range(-18, 18)
     this.pos.set(x, 500, z)

@@ -8,6 +8,7 @@ import type { GroundItem } from '../items/loot'
 import type { Vehicle } from '../world/vehicle'
 import { clamp, damp, dist2D, DEG } from '../utils/math'
 import { THROW_RELEASE } from '../animation/weaponActions'
+import { playerSkin } from '../content/skins'
 
 const _camDir = new THREE.Vector3()
 const _muzzle = new THREE.Vector3()
@@ -56,7 +57,7 @@ export class Player extends Character {
   }
 
   init(scene: THREE.Scene, x: number, z: number) {
-    this.buildModel(scene, 0xb9a06a)
+    this.buildModel(scene, 0xb9a06a, playerSkin())
     this.pos.set(x, 150, z)
     this.model.visible = false
   }

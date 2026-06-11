@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { surface, cloth, skin as skinMat, polymer } from '../rendering/materials'
 import { fabric, camo } from '../world/textures'
+import { getSkin, type SkinDef } from '../content/skins'
 
 /**
  * characterModel：角色身体程序化模型（与逻辑解耦）。
@@ -46,21 +47,26 @@ export interface CharacterRig {
 export interface CharacterModelOptions {
   bodyColor: number
   skinColor?: number
+  /** 服装皮肤；缺省按 bodyColor 走旧迷彩路径 */
+  skin?: SkinDef
 }
 
 export function buildCharacterModel(opts: CharacterModelOptions): CharacterRig {
-  const bodyColor = opts.bodyColor
-  const skinColor = opts.skinColor ?? 0xc9a583
-  const camoTex = getCamoTex(bodyColor)
+  const sk = opts.skin ?? { ...getSkin('woodland'), jacket: opts.bodyColor, pants: opts.bodyColor }
+  const skinColor = opts.skinColor ?? sk.skinTone
   const fabricTex = getFabricTex()
 
-  // 迷彩自带颜色，上下身用色相区分（裤子压暗）；布料走 PBR cloth 粗糙度
-  const matBody = surface({ color: 0xffffff, map: camoTex, roughness: 0.88 })
-  const matPants = surface({ color: 0xb4b6ac, map: camoTex, roughness: 0.9 })
-  const matGear = cloth(0x474d42, fabricTex)
-  const matDark = cloth(0x2e3230, fabricTex)
+  // 迷彩自带颜色（贴图从 jacket 色派生，裤子压暗区分）；纯色皮肤走布料贴图
+  const matBody = sk.camo
+    ? surface({ color: 0xffffff, map: getCamoTex(sk.jacket), roughness: 0.88 })
+    : cloth(sk.jacket, fabricTex)
+  const matPants = sk.camo
+    ? surface({ color: 0xb4b6ac, map: getCamoTex(sk.jacket), roughness: 0.9 })
+    : cloth(sk.pants, fabricTex)
+  const matGear = cloth(sk.gear, fabricTex)
+  const matDark = cloth(sk.gloves, fabricTex)
   const matSkin = skinMat(skinColor)
-  const matBoot = polymer(0x33342e)
+  const matBoot = polymer(sk.boots)
   const matStrap = cloth(0x3a3f38, fabricTex)
 
   const model = new THREE.Group()
@@ -159,11 +165,31 @@ export function buildCharacterModel(opts: CharacterModelOptions): CharacterRig {
   const band = mk(headGrp, new THREE.CylinderGeometry(0.17, 0.17, 0.03, 10, 1, false, -0.5, Math.PI + 1), matDark, 0, 0.02, 0, false)
   band.rotation.x = Math.PI / 2
   band.rotation.z = Math.PI / 2
-  // 作训帽 + 帽檐
-  const cap = mk(headGrp, new THREE.SphereGeometry(0.175, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.52), matBody, 0, 0.022, 0)
-  cap.receiveShadow = true
-  const brim = mk(headGrp, new THREE.CylinderGeometry(0.168, 0.188, 0.024, 10, 1, false, -0.6, 1.2), matBody, 0, 0.045, 0.1)
-  brim.castShadow = false
+  // 帽型按皮肤分支：作训帽 / 毛线帽 / 阔边帽 / 露发
+  if (sk.cap === 'cap') {
+    const cap = mk(headGrp, new THREE.SphereGeometry(0.175, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.52), matBody, 0, 0.022, 0)
+    cap.receiveShadow = true
+    const brim = mk(headGrp, new THREE.CylinderGeometry(0.168, 0.188, 0.024, 10, 1, false, -0.6, 1.2), matBody, 0, 0.045, 0.1)
+    brim.castShadow = false
+  } else if (sk.cap === 'beanie') {
+    const cap = mk(headGrp, new THREE.SphereGeometry(0.178, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.46), matDark, 0, 0.018, 0)
+    cap.receiveShadow = true
+    // 卷边
+    mk(headGrp, new THREE.CylinderGeometry(0.176, 0.18, 0.05, 12), matDark, 0, 0.045, 0, false)
+  } else if (sk.cap === 'boonie') {
+    const cap = mk(headGrp, new THREE.SphereGeometry(0.172, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.5), matBody, 0, 0.03, 0)
+    cap.receiveShadow = true
+    // 全周阔檐（微下垂）
+    const wide = mk(headGrp, new THREE.CylinderGeometry(0.17, 0.235, 0.028, 12), matBody, 0, 0.055, 0)
+    wide.castShadow = false
+    // 帽带
+    mk(headGrp, new THREE.CylinderGeometry(0.174, 0.174, 0.02, 12), matStrap, 0, 0.085, 0, false)
+  } else {
+    // 露发：发色球冠 + 后脑勺略厚
+    const hair = mk(headGrp, new THREE.SphereGeometry(0.17, 12, 7, 0, Math.PI * 2, 0, Math.PI * 0.42), matHair, 0, 0.018, -0.01)
+    hair.receiveShadow = true
+    mk(headGrp, new THREE.SphereGeometry(0.155, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), matHair, 0, 0.012, -0.045, false)
+  }
   upper.add(headGrp)
 
   // ---- 手臂（肩 → 上臂 → 肘 → 前臂 + 战术手套）----

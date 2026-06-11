@@ -5,6 +5,7 @@ import type { Ctx } from '../core/ctx'
 import { clamp, damp } from '../utils/math'
 import { chuteGores } from '../world/textures'
 import { buildCharacterModel } from './characterModel'
+import type { SkinDef } from '../content/skins'
 import { buildGunMesh } from './weaponModel'
 import { buildHelmetModel, buildVestModel, buildBagModel } from './gearModel'
 import { ActionTimeline, type CharacterMotionState, type MotionInput } from '../animation/motionState'
@@ -114,9 +115,9 @@ export class Character {
   forwardX(): number { return Math.sin(this.yaw) }
   forwardZ(): number { return Math.cos(this.yaw) }
 
-  buildModel(scene: THREE.Scene, bodyColor: number, skinColor = 0xc9a583) {
-    this.bodyColor = bodyColor
-    const rig = buildCharacterModel({ bodyColor, skinColor })
+  buildModel(scene: THREE.Scene, bodyColor: number, skin?: SkinDef) {
+    this.bodyColor = skin ? skin.jacket : bodyColor
+    const rig = buildCharacterModel({ bodyColor, skin })
     this.model = rig.model
     this.upper = rig.upper
     this.headGrp = rig.headGrp

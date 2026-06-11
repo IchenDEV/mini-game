@@ -1,4 +1,5 @@
 import { MAPS, MapConfig } from '../world/mapConfig'
+import { SKINS, playerSkin, setPlayerSkin } from '../content/skins'
 
 /**
  * startScreen：启动选图页的动态背景（余烬粒子 + 等高线漂移 + 扫描光带）
@@ -205,6 +206,28 @@ export function initStartScreen() {
       g.fillText('?', cv.width / 2, cv.height / 2)
     }
   })
+  buildSkinRow()
+}
+
+/** 皮肤选择条：双色 swatch（上衣/裤子）+ 名称，点击选中并记忆 */
+function buildSkinRow() {
+  const row = document.getElementById('skin-row')
+  if (!row) return
+  row.innerHTML = ''
+  const cur = playerSkin().id
+  const hx = (n: number) => '#' + n.toString(16).padStart(6, '0')
+  for (const s of SKINS) {
+    const btn = document.createElement('button')
+    btn.className = 'skin-chip' + (s.id === cur ? ' on' : '')
+    btn.title = s.name
+    btn.innerHTML = `<span class="sw" style="background:linear-gradient(135deg,${hx(s.jacket)} 0 52%,${hx(s.pants)} 52% 100%)"></span><label>${s.name}</label>`
+    btn.addEventListener('click', () => {
+      setPlayerSkin(s.id)
+      row.querySelectorAll('.skin-chip').forEach((c) => c.classList.remove('on'))
+      btn.classList.add('on')
+    })
+    row.appendChild(btn)
+  }
 }
 
 /** 停止背景循环（进入加载后调用，省 CPU） */
