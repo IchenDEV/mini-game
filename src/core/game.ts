@@ -19,6 +19,7 @@ import { PlaneRide } from '../world/plane'
 import { Vehicle } from '../world/vehicle'
 import { MAPS, MapConfig } from '../world/mapConfig'
 import { WorldEvents } from '../world/events/worldEvents'
+import { pickWeather, WeatherFX } from '../world/weather'
 import { TPCamera } from './camera'
 import { RNG } from '../utils/rng'
 import { clamp } from '../utils/math'
@@ -37,6 +38,8 @@ export class Game {
   private lastZoneIdx = -1
   private sun: THREE.DirectionalLight
   private clock = new THREE.Clock()
+  private weatherFX: WeatherFX
+  private windMul = 1
 
   private kill = (victim: Character, attacker: Character | null, weaponName: string) => {
     const ctx = this.ctx
@@ -74,22 +77,29 @@ export class Game {
     container.appendChild(renderer.domElement)
     this.renderer = renderer
 
-    // 环境氛围由生物群系决定
+    // 环境氛围由生物群系 + 本局天气共同决定
+    const weather = pickWeather(biome, new URLSearchParams(location.search).get('weather'))
+    this.windMul = weather.windMul
+    const fogColor = new THREE.Color(biome.fogColor).lerp(new THREE.Color(weather.fogTint), weather.fogTintAmt)
     const scene = new THREE.Scene()
-    scene.background = new THREE.Color(biome.fogColor)
-    scene.fog = new THREE.Fog(biome.fogColor, biome.fogNear, biome.fogFar)
+    scene.background = fogColor.clone()
+    scene.fog = new THREE.Fog(fogColor, biome.fogNear * weather.fogNearMul, biome.fogFar * weather.fogFarMul)
 
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, cfg.half * 2.6)
     camera.position.set(0, cfg.planeAlt + 10, 0)
 
-    this.sun = createLighting(scene, biome, quality).sun
+    const lights = createLighting(scene, biome, quality)
+    lights.sun.intensity *= weather.sunMul
+    lights.hemi.intensity *= weather.hemiMul
+    this.sun = lights.sun
     applyEnvironment(renderer, scene)
     this.composer = createPostProcessing(renderer, scene, camera, quality)
     const composer = this.composer
 
     // 世界与系统
-    const world = new World(cfg)
+    const world = new World(cfg, weather)
     world.build(scene)
+    this.weatherFX = new WeatherFX(weather, scene)
     const fx = new Effects(scene)
     const loot = new LootSystem(scene, world, fx)
     loot.spawnInitial()
@@ -116,6 +126,7 @@ export class Game {
       aliveCount: cfg.botCount + 1, graceUntil: 40,
       kill: this.kill,
     }
+    this.weatherFX.bindLightning(lights.hemi, scene, () => sfx.thunder())
 
     player.init(scene, plane.x, plane.z)
     this.ctx.chars.push(player)
@@ -143,15 +154,18 @@ export class Game {
       this.ctx.vehicles.push(new Vehicle(scene, vs.x, vs.z, vs.yaw, g))
     }
 
-    // 顶栏地图名 + 锁定卡片地图说明
-    hud.setMapName(`${cfg.name} · ${cfg.subtitle}`)
+    // 顶栏地图名 + 锁定卡片地图说明（含本局天气）
+    hud.setMapName(`${cfg.name} · ${cfg.subtitle} · ${weather.label}`)
     const lockSub = document.querySelector('#overlay-lock .lock-card p')
-    if (lockSub) lockSub.textContent = `${cfg.name} — ${cfg.subtitle}`
+    if (lockSub) lockSub.textContent = `${cfg.name} — ${cfg.subtitle} · 天气：${weather.label}`
 
     // UI 接线
     document.getElementById('btn-lock')!.addEventListener('click', () => {
       sfx.ensure()
       sfx.ambientStart()
+      if (this.weatherFX.def.rainCount > 0) {
+        sfx.rainStart(this.weatherFX.def.kind === 'storm' ? 1 : 0.5)
+      }
       this.started = true
       input.requestLock()
       document.getElementById('overlay-lock')!.classList.add('hidden')
@@ -328,7 +342,8 @@ export class Game {
     ctx.loot.update(dt, ctx.time)
     ctx.sfx.setListener(ctx.camera.position, ctx.player.yaw)
     ctx.input.endFrame()
-    ctx.world.windT.value += dt
+    ctx.world.windT.value += dt * this.windMul
+    this.weatherFX.update(dt, ctx.time, ctx.camera.position, ctx.scene)
     this.composer.render()
   }
 }

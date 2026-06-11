@@ -7,6 +7,7 @@ import * as TEX from './textures'
 import { surface } from '../rendering/materials'
 import type { MapConfig } from './mapConfig'
 import type { BiomeDef } from './biome'
+import type { WeatherDef } from './weather'
 import { buildPoi, house, carWreck, bridge } from './poi/poiTemplates'
 
 export type TexKind = 'plaster' | 'brick' | 'metal' | 'roof' | 'wood' | 'concrete' | 'bark' | 'leaves' | 'rooftiles' | 'leafLitter' | 'gravelPatch'
@@ -118,9 +119,12 @@ export class World {
 
   // 树距离 LOD：近桶细节网格 / 远桶 billboard
   private treeLod: { cx: number; cz: number; detail: THREE.Object3D[]; far: THREE.Object3D[]; isDetail: boolean }[] = []
+  /** 本局天气（影响天空贴图与云量），null = 晴 */
+  private weather: WeatherDef | null = null
 
-  constructor(cfg: MapConfig) {
+  constructor(cfg: MapConfig, weather?: WeatherDef) {
     this.cfg = cfg
+    this.weather = weather ?? null
     this.biome = cfg.biome
     this.rng = new RNG(cfg.seed)
     this.half = cfg.half
@@ -621,21 +625,24 @@ export class World {
       }
     }
 
-    // 天空穹顶（每帧跟随玩家水平位置，见 updateGrass 调用处）
+    // 天空穹顶（每帧跟随玩家水平位置，见 updateGrass 调用处）；天气可覆盖天空渐变
     const skyGeo = new THREE.SphereGeometry(this.half * 1.9, 24, 12)
-    const [s0, s1, s2, s3] = this.biome.sky
+    const [s0, s1, s2, s3] = this.weather?.skyOverride ?? this.biome.sky
     const skyMat = new THREE.MeshBasicMaterial({ map: TEX.skyGradient(s0, s1, s2, s3), side: THREE.BackSide, fog: false, depthWrite: false })
     this.sky = new THREE.Mesh(skyGeo, skyMat)
     this.sky.renderOrder = -10
     this.group.add(this.sky)
 
-    // 远处云层（蓬松积云贴图）
+    // 远处云层（蓬松积云贴图）；阴雨天云更多更暗
+    const cloudDark = this.weather?.cloudDark ?? 0
     const cloudMat = new THREE.MeshBasicMaterial({
-      map: TEX.cloudPuff(), transparent: true, opacity: this.biome.cloudOpacity,
+      map: TEX.cloudPuff(), transparent: true, opacity: this.biome.cloudOpacity * (1 + cloudDark * 0.5),
+      color: new THREE.Color(1 - cloudDark * 0.55, 1 - cloudDark * 0.52, 1 - cloudDark * 0.45),
       fog: false, depthWrite: false,
     })
     const cloudRng = new RNG(77)
-    for (let i = 0; i < this.biome.cloudCount; i++) {
+    const cloudN = Math.round(this.biome.cloudCount * (this.weather?.cloudMul ?? 1))
+    for (let i = 0; i < cloudN; i++) {
       const cw = cloudRng.range(220, 520)
       const cd = cw * cloudRng.range(0.4, 0.62)
       const cloud = new THREE.Mesh(new THREE.PlaneGeometry(cw, cd), cloudMat)

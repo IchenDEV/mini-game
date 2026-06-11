@@ -142,6 +142,33 @@ export class Sfx {
     this.noise(0.09, 3400, 2.6, 0.2, clamp(side * 0.4, -0.8, 0.8), 'bandpass', 0.004)
   }
 
+  // ---------------- 天气 ----------------
+
+  private rainNodes: { n: AudioBufferSourceNode; g: GainNode } | null = null
+
+  /** 雨声循环（intensity 0~1 控制响度与频宽） */
+  rainStart(intensity: number) {
+    if (!this.ctx || !this.master || !this.noiseBuf || this.rainNodes) return
+    const n = this.ctx.createBufferSource()
+    n.buffer = this.noiseBuf
+    n.loop = true
+    n.playbackRate.value = 0.9
+    const f = this.ctx.createBiquadFilter()
+    f.type = 'lowpass'
+    f.frequency.value = 1700 + intensity * 1900
+    const g = this.ctx.createGain()
+    g.gain.value = 0.04 + intensity * 0.05
+    n.connect(f); f.connect(g); g.connect(this.master)
+    n.start()
+    this.rainNodes = { n, g }
+  }
+
+  /** 雷声：低频轰鸣 + 长尾衰减 */
+  thunder() {
+    this.noise(1.8, 160 + Math.random() * 120, 0.6, 0.5, (Math.random() - 0.5) * 0.9, 'lowpass', 0.05)
+    this.tone(46 + Math.random() * 18, 1.3, 0.4, 0, 'triangle', 22, 0.02)
+  }
+
   // ---------------- 飞机引擎循环 ----------------
 
   private planeNodes: { o1: OscillatorNode; o2: OscillatorNode; n: AudioBufferSourceNode; g: GainNode } | null = null
