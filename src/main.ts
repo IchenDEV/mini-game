@@ -1,12 +1,16 @@
 import { Game } from './core/game'
 import { MAPS, randomMapId } from './world/mapConfig'
+import { initStartScreen, stopStartScreen } from './ui/startScreen'
 
 const app = document.getElementById('app')!
 const mapSelect = document.getElementById('map-select')!
 const loading = document.getElementById('loading')!
 
+initStartScreen()
+
 function launch(mapId: string) {
   const cfg = MAPS[mapId]
+  stopStartScreen()
   mapSelect.classList.add('hidden')
   loading.classList.remove('hidden')
   document.getElementById('loading-map')!.textContent = `正在生成 ${cfg.name} · ${cfg.subtitle}…`

@@ -92,28 +92,52 @@
 
   <!-- 地图选择 -->
   <div id="map-select">
+    <canvas id="ms-bg"></canvas>
+    <div class="ms-scanlines"></div>
+    <div class="ms-corner ms-c-tl"></div>
+    <div class="ms-corner ms-c-tr"></div>
+    <div class="ms-corner ms-c-bl"></div>
+    <div class="ms-corner ms-c-br"></div>
     <div class="map-card">
-      <h1>孤圈行动</h1>
+      <p class="ms-tag">TACTICAL BATTLE ROYALE · PROTOTYPE</p>
+      <h1 class="ms-title"><span>孤</span><span>圈</span><span>行</span><span>动</span></h1>
       <p class="ms-sub">LAST CIRCLE · 选择作战地图</p>
       <div class="map-grid">
         <button data-map="grassland" class="ms-grass">
-          <b>绿野围城</b><i>草原 · 乡村</i>
-          <span>丘陵草地 / 村镇河道 — 中距交火与房区搜刮</span>
+          <canvas class="ms-thumb" data-thumb="grassland" width="148" height="110"></canvas>
+          <div class="ms-info">
+            <b>绿野围城</b><i>草原 · 乡村</i>
+            <span>丘陵草地 / 村镇河道 — 中距交火与房区搜刮</span>
+          </div>
         </button>
         <button data-map="desert" class="ms-desert">
-          <b>烈日荒原</b><i>沙漠 · 远距</i>
-          <span>沙丘峡谷 / 干河公路 — 远距对狙与载具转移</span>
+          <canvas class="ms-thumb" data-thumb="desert" width="148" height="110"></canvas>
+          <div class="ms-info">
+            <b>烈日荒原</b><i>沙漠 · 远距</i>
+            <span>沙丘峡谷 / 干河公路 — 远距对狙与载具转移</span>
+          </div>
         </button>
         <button data-map="jungle" class="ms-jungle">
-          <b>雾林行动</b><i>雨林 · 近战</i>
-          <span>密林湿地 / 竹寨遗迹 — 近战遭遇与潜行伏击</span>
+          <canvas class="ms-thumb" data-thumb="jungle" width="148" height="110"></canvas>
+          <div class="ms-info">
+            <b>雾林行动</b><i>雨林 · 近战</i>
+            <span>密林湿地 / 竹寨遗迹 — 近战遭遇与潜行伏击</span>
+          </div>
         </button>
         <button data-map="random" class="ms-random">
-          <b>随机地图</b><i>?</i>
-          <span>由系统抽取战场</span>
+          <canvas class="ms-thumb" width="148" height="110"></canvas>
+          <div class="ms-info">
+            <b>随机地图</b><i>?</i>
+            <span>由系统抽取战场 — 天气随机</span>
+          </div>
         </button>
       </div>
-      <div class="ms-foot">2.5km × 2.5km 大世界 · 12 个资源点 · 可驾驶载具</div>
+      <div class="ms-foot">
+        <span>2.5KM × 2.5KM 大世界</span><em>/</em>
+        <span>18 类资源点</span><em>/</em>
+        <span>动态天气 · 局内事件</span><em>/</em>
+        <span>可驾驶载具</span>
+      </div>
     </div>
   </div>
 
