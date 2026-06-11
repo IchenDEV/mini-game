@@ -80,9 +80,9 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
   grassland: {
     id: 'grassland',
     sky: ['#7fa6c8', '#aec8da', '#cdd9e0', '#d8dcd8'],
-    fogColor: 0xc4d2dc, fogNear: 260, fogFar: 1150,
-    hemiSky: 0xd8e8f5, hemiGround: 0x5d6b4a, hemiIntensity: 0.72,
-    sunColor: 0xfff2dd, sunIntensity: 1.75,
+    fogColor: 0xc4d2dc, fogNear: 310, fogFar: 1300,
+    hemiSky: 0xdcebf7, hemiGround: 0x68754f, hemiIntensity: 0.95,
+    sunColor: 0xfff2dd, sunIntensity: 1.9,
     cloudCount: 14, cloudOpacity: 0.55,
 
     baseH: 6, hillAmp: 13, hillFreq: 0.0042, detailAmp: 1.1, duneAmp: 0,
@@ -110,9 +110,9 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
   desert: {
     id: 'desert',
     sky: ['#8db4d4', '#c4d3da', '#e8d9bc', '#f0e2c0'],
-    fogColor: 0xe5d9bd, fogNear: 340, fogFar: 1400,
-    hemiSky: 0xfdeed2, hemiGround: 0x96815f, hemiIntensity: 0.78,
-    sunColor: 0xfff0d0, sunIntensity: 2.15,
+    fogColor: 0xe8dcc0, fogNear: 430, fogFar: 1700,
+    hemiSky: 0xfdeed2, hemiGround: 0x9d8866, hemiIntensity: 0.92,
+    sunColor: 0xfff0d0, sunIntensity: 2.25,
     cloudCount: 5, cloudOpacity: 0.35,
 
     baseH: 7, hillAmp: 9, hillFreq: 0.0036, detailAmp: 0.8, duneAmp: 14,
@@ -139,10 +139,11 @@ export const BIOMES: Record<BiomeId, BiomeDef> = {
 
   jungle: {
     id: 'jungle',
+    // 雨林保留雾气，但抬高天空补光与太阳强度，避免中间调发黑
     sky: ['#5f8a9c', '#8fb3b4', '#b8ccb8', '#c6d2bc'],
-    fogColor: 0xa9bda8, fogNear: 150, fogFar: 760,
-    hemiSky: 0xc2d8c8, hemiGround: 0x4a5f44, hemiIntensity: 0.82,
-    sunColor: 0xe8f2d8, sunIntensity: 1.6,
+    fogColor: 0xafc3ae, fogNear: 165, fogFar: 850,
+    hemiSky: 0xd6e8da, hemiGround: 0x55694e, hemiIntensity: 1.12,
+    sunColor: 0xeef5dc, sunIntensity: 1.8,
     cloudCount: 18, cloudOpacity: 0.7,
 
     baseH: 7, hillAmp: 21, hillFreq: 0.005, detailAmp: 1.6, duneAmp: 0,

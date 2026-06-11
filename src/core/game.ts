@@ -1,9 +1,8 @@
 import * as THREE from 'three'
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js'
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
+import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
+import { CINEMATIC_HIGH } from '../rendering/quality'
+import { createPostProcessing } from '../rendering/postProcessing'
+import { createLighting, applyEnvironment } from '../rendering/lighting'
 import { World } from '../world/world'
 import { LootSystem } from '../items/loot'
 import { Effects } from '../fx/effects'
@@ -23,37 +22,6 @@ import { TPCamera } from './camera'
 import { RNG } from '../utils/rng'
 import { clamp } from '../utils/math'
 import type { Ctx } from './ctx'
-
-/** 暗角 + 轻度色彩分级（提饱和、压灰），写实手游观感 */
-const GradeShader = {
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
-    uVignette: { value: 0.24 },
-    uSaturation: { value: 1.07 },
-    uContrast: { value: 1.03 },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse;
-    uniform float uVignette;
-    uniform float uSaturation;
-    uniform float uContrast;
-    varying vec2 vUv;
-    void main() {
-      vec4 c = texture2D(tDiffuse, vUv);
-      float lum = dot(c.rgb, vec3(0.299, 0.587, 0.114));
-      c.rgb = mix(vec3(lum), c.rgb, uSaturation);
-      c.rgb = (c.rgb - 0.5) * uContrast + 0.5;
-      float d = distance(vUv, vec2(0.5));
-      c.rgb *= 1.0 - uVignette * smoothstep(0.38, 0.86, d);
-      gl_FragColor = c;
-    }`,
-}
 
 export class Game {
   private renderer: THREE.WebGLRenderer
@@ -94,13 +62,14 @@ export class Game {
     this.cfg = cfg
     const biome = cfg.biome
 
+    const quality = CINEMATIC_HIGH
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setSize(window.innerWidth, window.innerHeight)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.pixelRatioCap))
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 0.88
+    renderer.toneMappingExposure = quality.exposure
     container.appendChild(renderer.domElement)
     this.renderer = renderer
 
@@ -112,47 +81,10 @@ export class Game {
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, cfg.half * 2.6)
     camera.position.set(0, cfg.planeAlt + 10, 0)
 
-    const hemi = new THREE.HemisphereLight(biome.hemiSky, biome.hemiGround, biome.hemiIntensity)
-    scene.add(hemi)
-    const sun = new THREE.DirectionalLight(biome.sunColor, biome.sunIntensity)
-    sun.position.set(120, 190, 60)
-    sun.castShadow = true
-    sun.shadow.mapSize.set(4096, 4096)
-    sun.shadow.camera.left = -130
-    sun.shadow.camera.right = 130
-    sun.shadow.camera.top = 130
-    sun.shadow.camera.bottom = -130
-    sun.shadow.camera.near = 10
-    sun.shadow.camera.far = 600
-    sun.shadow.bias = -0.0006
-    sun.shadow.normalBias = 0.02
-    sun.shadow.radius = 1.6
-    scene.add(sun)
-    scene.add(sun.target)
-    this.sun = sun
-    // 天空漫反射补光：缓解背光面死黑（无阴影，低强度）
-    const fill = new THREE.DirectionalLight(0xc2d6e8, 0.24)
-    fill.position.set(-90, 55, -120)
-    scene.add(fill)
-
-    // 后处理：MSAA 渲染目标 + 泛光 + 暗角/色彩分级
-    const rtSamples = renderer.capabilities.isWebGL2 ? 4 : 0
-    const composer = new EffectComposer(
-      renderer,
-      new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
-        samples: rtSamples, type: THREE.HalfFloatType,
-      }),
-    )
-    composer.addPass(new RenderPass(scene, camera))
-    // 注：GTAOPass 在本场景（数千独立网格 + MSAA RT）实测有 50 倍帧时间开销，
-    // 改为 world 侧烘焙式接触阴影贴花（见 World.buildContactAO）实现环境光遮蔽观感。
-    const bloom = new UnrealBloomPass(
-      new THREE.Vector2(window.innerWidth, window.innerHeight), 0.12, 0.5, 0.92,
-    )
-    composer.addPass(bloom)
-    composer.addPass(new ShaderPass(GradeShader))
-    composer.addPass(new OutputPass())
-    this.composer = composer
+    this.sun = createLighting(scene, biome, quality).sun
+    applyEnvironment(renderer, scene)
+    this.composer = createPostProcessing(renderer, scene, camera, quality)
+    const composer = this.composer
 
     // 世界与系统
     const world = new World(cfg)
