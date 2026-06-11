@@ -220,6 +220,7 @@ export class Bot extends Character {
     if (this.healUntil > 0) {
       if (this.lastDamageT > this.healStartT || this.target) {
         this.healUntil = -1
+        if (this.action.kind === 'heal') this.action.cancel()
         this.state = this.target ? 'combat' : 'wander'
       } else if (t >= this.healUntil) {
         this.hp = Math.min(100, this.hp + 62)
@@ -270,6 +271,7 @@ export class Bot extends Character {
       this.state = 'heal'
       this.healStartT = t
       this.healUntil = t + 4.5
+      this.action.start('heal', 4.5)
       return
     }
     // 缩圈预判
@@ -536,6 +538,7 @@ export class Bot extends Character {
         if (this.ammoPool > 0) {
           this.pendReload = t + w.def.reload
           w.reloadEnd = this.pendReload
+          this.action.start('reload', w.def.reload)
         } else if (dist > 12) {
           this.state = 'flee'
           this.fleeUntil = t + 5

@@ -40,7 +40,7 @@ export class Game {
   private kill = (victim: Character, attacker: Character | null, weaponName: string) => {
     const ctx = this.ctx
     if (!victim.alive) return
-    victim.lieDown()
+    victim.lieDown(attacker)
     this.corpses.push({ ch: victim, t: ctx.time })
     ctx.loot.dropCorpseLoot(victim)
     ctx.aliveCount = ctx.chars.filter((c) => c.alive).length

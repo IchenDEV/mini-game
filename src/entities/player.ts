@@ -7,12 +7,14 @@ import type { Ctx } from '../core/ctx'
 import type { GroundItem } from '../items/loot'
 import type { Vehicle } from '../world/vehicle'
 import { clamp, damp, dist2D, DEG } from '../utils/math'
+import { THROW_RELEASE } from '../animation/weaponActions'
 
 const _camDir = new THREE.Vector3()
 const _muzzle = new THREE.Vector3()
 const _aim = new THREE.Vector3()
 const _shotDir = new THREE.Vector3()
 const NADE_TYPES = ['frag', 'smoke', 'flash'] as const
+const THROW_DUR = 0.5
 
 interface Casting {
   itemId: string
@@ -39,6 +41,8 @@ export class Player extends Character {
   bloom = 0
   private switchLockUntil = 0
   private pendingReload: { w: WeaponInst; end: number } | null = null
+  /** 投掷动作进行中：到时刻 at 才真正抛出 */
+  private pendingThrow: { type: 'frag' | 'smoke' | 'flash'; at: number } | null = null
   private stepAcc = 0
   private sens = 0.0023
   blockInput = false
@@ -99,6 +103,10 @@ export class Player extends Character {
     this.switchLockUntil = ctx.time + 0.4
     this.cancelReload()
     this.cancelCast(ctx, false)
+    if (this.pendingThrow) {
+      this.pendingThrow = null
+      this.action.cancel()
+    }
     this.refreshHands()
     ctx.sfx.equip()
     return true
@@ -108,6 +116,7 @@ export class Player extends Character {
     if (this.pendingReload) {
       this.pendingReload.w.reloadEnd = -1
       this.pendingReload = null
+      if (this.action.kind === 'reload') this.action.cancel()
     }
   }
 
@@ -122,12 +131,14 @@ export class Player extends Character {
     }
     w.reloadEnd = ctx.time + w.def.reload
     this.pendingReload = { w, end: w.reloadEnd }
+    this.action.start('reload', w.def.reload)
     ctx.sfx.reload()
   }
 
   private cancelCast(ctx: Ctx, sound = true) {
     if (this.casting) {
       this.casting = null
+      if (this.action.kind === 'heal' || this.action.kind === 'boost') this.action.cancel()
       if (sound) ctx.hud.notice('已打断')
     }
   }
@@ -156,7 +167,9 @@ export class Player extends Character {
   beginCast(ctx: Ctx, itemId: string) {
     const def = ITEMS[itemId]
     if (!def || this.inv.count(itemId) <= 0) return
-    this.casting = { itemId, label: `正在使用 ${def.name}…`, dur: def.castTime ?? 3, t: 0 }
+    const dur = def.castTime ?? 3
+    this.casting = { itemId, label: `正在使用 ${def.name}…`, dur, t: 0 }
+    this.action.start(def.kind === 'boost' ? 'boost' : 'heal', dur)
     this.cancelReload()
   }
 
@@ -305,6 +318,9 @@ export class Player extends Character {
       if (input.pressed('KeyJ')) this.startBoost(ctx)
     }
 
+    // 投掷释放点
+    if (this.pendingThrow && t >= this.pendingThrow.at) this.releaseNade(ctx)
+
     // 换弹完成
     if (this.pendingReload && t >= this.pendingReload.end) {
       const rw = this.pendingReload.w
@@ -377,6 +393,8 @@ export class Player extends Character {
     this.poseAiming = false
     this.cancelCast(ctx, false)
     this.cancelReload()
+    this.pendingThrow = null
+    this.action.cancel()
     this.nearLoot = null
     this.nearVehicle = null
     ctx.sfx.equip()
@@ -490,6 +508,7 @@ export class Player extends Character {
   private meleeLastT = -99
 
   private throwNade(ctx: Ctx) {
+    if (this.pendingThrow) return
     const type = this.nadeType()
     if (this.inv.count(type) <= 0) {
       // 尝试切到有库存的类型
@@ -498,10 +517,20 @@ export class Player extends Character {
       }
       if (this.inv.count(this.nadeType()) <= 0) { ctx.hud.notice('没有投掷物'); return }
     }
+    // 拉手→后摆→前甩：到前甩释放点才真正抛出
+    this.action.start('throw', THROW_DUR)
+    this.pendingThrow = { type: this.nadeType(), at: ctx.time + THROW_DUR * THROW_RELEASE }
+  }
+
+  /** 投掷动作到达释放点：实际抛出投掷物 */
+  private releaseNade(ctx: Ctx) {
+    const type = this.pendingThrow!.type
+    this.pendingThrow = null
+    if (this.inv.count(type) <= 0) return
     ctx.camera.getWorldDirection(_camDir)
     _muzzle.set(this.pos.x + _camDir.x * 0.5, this.pos.y + this.eyeH, this.pos.z + _camDir.z * 0.5)
-    ctx.combat.throwGrenade(ctx, this, this.nadeType(), _muzzle, _camDir)
-    this.inv.removeItem(this.nadeType(), 1)
+    ctx.combat.throwGrenade(ctx, this, type, _muzzle, _camDir)
+    this.inv.removeItem(type, 1)
     if (this.slot === 4 && this.totalNades() === 0) this.trySwitch(3, ctx)
   }
 

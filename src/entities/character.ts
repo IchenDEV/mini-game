@@ -7,6 +7,8 @@ import { chuteGores } from '../world/textures'
 import { buildCharacterModel } from './characterModel'
 import { buildGunMesh } from './weaponModel'
 import { buildHelmetModel, buildVestModel, buildBagModel } from './gearModel'
+import { ActionTimeline, type CharacterMotionState, type MotionInput } from '../animation/motionState'
+import { computePose } from '../animation/characterPose'
 
 const chuteTexCache = new Map<number, THREE.Texture>()
 function getChuteTex(color: number): THREE.Texture {
@@ -94,12 +96,17 @@ export class Character {
 
   // 动画状态
   protected animT = Math.random() * 10
-  protected punchT = -9
   protected handsBusy = false
   protected bobV = 0
   protected leanZ = 0
   protected modelTilt = 0
   protected prevYaw = 0
+  /** 上身动作时间线（换弹/投掷/治疗/受击/近战） */
+  action = new ActionTimeline()
+  /** 受击侧向：-1 左 / +1 右 */
+  protected hitDir = 0
+  /** 最近一次 update 的全局时间（开火后坐衰减用） */
+  protected ctxTime = 0
 
   get height(): number { return this.crouching ? 1.3 : 1.8 }
   get eyeH(): number { return this.crouching ? 1.05 : 1.55 }
@@ -186,7 +193,7 @@ export class Character {
 
   /** 近战出拳动画触发 */
   triggerPunch() {
-    this.punchT = this.animT + 0.28
+    this.action.start('melee', 0.28)
   }
 
   muzzleWorld(out: THREE.Vector3): THREE.Vector3 {
@@ -197,6 +204,7 @@ export class Character {
   /** 物理与动画更新 */
   update(dt: number, ctx: Ctx) {
     if (!this.alive) return
+    this.ctxTime = ctx.time
     const accel = this.onGround ? 13 : 2.6
     this.vel.x = damp(this.vel.x, this.wishX * this.wishSpeed, accel, dt)
     this.vel.z = damp(this.vel.z, this.wishZ * this.wishSpeed, accel, dt)
@@ -264,9 +272,23 @@ export class Character {
     this.animate(dt)
   }
 
+  /** 当前主运动状态（供姿态计算与外部查询） */
+  motionState(): CharacterMotionState {
+    if (!this.alive) return 'dead'
+    if (this.seated) return 'drive'
+    if (this.dropping) {
+      return !this.chuteObj || !this.chuteObj.visible ? 'freefall' : 'chute'
+    }
+    if (!this.onGround) return 'jump'
+    if (this.crouching) return 'crouch'
+    const hSpeed = Math.hypot(this.vel.x, this.vel.z)
+    if (hSpeed < 0.4) return 'idle'
+    return hSpeed > 5.2 ? 'run' : 'walk'
+  }
+
   /**
-   * 姿态动画：所有关节角向目标值阻尼过渡（消除"僵尸感"），
-   * 覆盖 站立呼吸 / 行走 / 奔跑 / 蹲伏 / 跳跃 / 跳伞 / 驾驶坐姿 / 出拳。
+   * 姿态动画：读取状态 → computePose 计算关节目标 → 阻尼应用到骨架。
+   * 覆盖 站立/行走/奔跑/蹲伏/跳跃/跳伞/驾驶 + 换弹/投掷/治疗/受击/近战动作层。
    */
   protected animate(dt: number) {
     this.animT += dt
@@ -274,124 +296,60 @@ export class Character {
     const moveK = clamp(hSpeed / 4.2, 0, 1)
     const runK = clamp((hSpeed - 4.4) / 2.4, 0, 1)
     this.walkPhase += hSpeed * dt * 1.6
+    const state = this.motionState()
     const armed = this.handsBusy
-    const aiming = armed && this.poseAiming && this.weapon !== null
-    const freefall = this.dropping && (!this.chuteObj || !this.chuteObj.visible)
-    const hanging = this.dropping && !freefall
-    const idle = hSpeed < 0.4 && this.onGround && !this.dropping && !this.seated
-
+    const aiming = armed && this.poseAiming && this.weapon !== null && state !== 'drive' && state !== 'chute' && state !== 'freefall'
+    const idle = state === 'idle'
     const sw = Math.sin(this.walkPhase)
     const breath = Math.sin(this.animT * 1.8)
 
-    // ---- 目标关节角 ----
-    let tThL = 0, tThR = 0, tKnL = 0.06, tKnR = 0.06
-    let tArmLx = 0, tArmLz = -0.06, tElbL = 0.16
-    let tArmRx = 0, tArmRz = 0.06, tElbR = 0.16
-    let tUpperY = 0, tBob = 0, tGunRx = 0
+    // 上身动作仅在地面状态生效；跳伞/驾驶时挂起
+    const actionBlocked = state === 'drive' || state === 'chute' || state === 'freefall'
+    const actionK = actionBlocked ? 0 : this.action.tick(dt)
+    const action = actionBlocked ? 'none' : this.action.kind
 
-    if (this.seated) {
-      // 驾驶坐姿：大腿前伸、小腿下垂、双手向前握方向盘
-      tThL = tThR = -1.42
-      tKnL = tKnR = 1.3
-      tArmLx = tArmRx = -0.92
-      tArmLz = 0.24; tArmRz = -0.24
-      tElbL = tElbR = 0.62
-    } else if (hanging) {
-      // 伞降悬挂：腿微前摆，双手抓握伞绳
-      tThL = -0.34; tThR = -0.22
-      tKnL = 0.6; tKnR = 0.48
-      tArmLx = tArmRx = -2.5
-      tArmLz = -0.32; tArmRz = 0.32
-      tElbL = tElbR = 0.42
-    } else if (freefall) {
-      // 自由落体：四肢展开
-      tThL = 0.3; tThR = 0.45
-      tKnL = 0.85; tKnR = 0.7
-      tArmLx = tArmRx = -0.35
-      tArmLz = -1.2; tArmRz = 1.2
-      tElbL = tElbR = 0.45
-    } else if (!this.onGround) {
-      // 跳跃滞空：前后分腿
-      tThL = -0.55; tThR = 0.28
-      tKnL = 0.95; tKnR = 0.5
-    } else if (this.crouching) {
-      const cs = sw * 0.38 * moveK
-      tThL = -0.92 + cs
-      tThR = -0.68 - cs
-      tKnL = 1.18; tKnR = 1.02
-      tUpperY = -0.42
-      tBob = Math.abs(Math.cos(this.walkPhase)) * 0.02 * moveK
-    } else {
-      // 行走/奔跑：大腿摆动 + 回摆腿屈膝 + 身体起伏
-      const amp = 0.12 + moveK * 0.5 + runK * 0.2
-      tThL = sw * amp
-      tThR = -sw * amp
-      const kneeAmp = (0.45 + runK * 0.7) * moveK
-      tKnL = Math.max(0, -sw) * kneeAmp + 0.06
-      tKnR = Math.max(0, sw) * kneeAmp + 0.06
-      tBob = Math.abs(Math.cos(this.walkPhase)) * (0.028 + 0.05 * runK) * moveK
+    // 开火后坐冲量（指数衰减，基于武器最后开火时刻）
+    let fireK = 0
+    if (this.weapon && armed) {
+      const since = Math.max(0, this.ctxTime - this.weapon.lastShot)
+      if (since < 0.4) fireK = Math.exp(-since * 16)
     }
 
-    // ---- 手臂 ----
-    if (!this.seated && !this.dropping) {
-      if (aiming) {
-        // 据枪瞄准：右手扣扳机、左手托护木
-        tArmRx = -1.18; tArmRz = -0.06; tElbR = 0.5
-        tArmLx = -1.0; tArmLz = 0.44; tElbL = 0.95
-        tGunRx = 0
-      } else if (armed) {
-        if (this.sprinting) {
-          // 持枪冲刺：枪口下压、随步伐小幅泵动
-          tArmRx = -0.6 + sw * 0.14; tElbR = 0.92
-          tArmLx = -0.48 - sw * 0.14; tArmLz = 0.32; tElbL = 1.0
-          tGunRx = 0.6
-        } else {
-          // 低持枪戒备
-          tArmRx = -0.8 + sw * 0.05 * moveK; tElbR = 0.55
-          tArmLx = -0.62 - sw * 0.05 * moveK; tArmLz = 0.36; tElbL = 0.85
-          tGunRx = 0.36
-        }
-      } else {
-        // 徒手：自然摆臂 + 屈肘
-        const armAmp = 0.14 + 0.4 * moveK + 0.22 * runK
-        tArmLx = -sw * armAmp
-        tArmRx = sw * armAmp
-        tElbL = 0.18 + Math.max(0, sw) * 0.55 * moveK
-        tElbR = 0.18 + Math.max(0, -sw) * 0.55 * moveK
-        if (idle) {
-          tArmLx += breath * 0.025
-          tArmRx += breath * 0.025
-        }
-      }
-      // 出拳/近战挥击覆盖右臂
-      if (this.animT < this.punchT) {
-        const k = 1 - (this.punchT - this.animT) / 0.28
-        const ext = Math.sin(clamp(k, 0, 1) * Math.PI)
-        tArmRx = -0.25 - 1.25 * ext
-        tArmRz = -0.1
-        tElbR = 0.15 + (1 - ext) * 0.9
-        tGunRx = -0.3 * ext
-      }
+    const m: MotionInput = {
+      state,
+      moveK, runK,
+      walkPhase: this.walkPhase,
+      breath,
+      armed, aiming,
+      sprinting: this.sprinting,
+      idle,
+      pitch: this.pitch,
+      action, actionK,
+      fireK,
+      hitDir: this.hitDir,
     }
+    const pose = computePose(m)
 
-    // ---- 应用关节（阻尼过渡） ----
-    const J = (o: THREE.Object3D, ax: 'x' | 'y' | 'z', v: number, sp = 14) => {
-      o.rotation[ax] = damp(o.rotation[ax], v, sp, dt)
+    // ---- 应用关节（阻尼过渡；动作层用更快的响应） ----
+    const sp = action !== 'none' ? 22 : 14
+    const J = (o: THREE.Object3D, ax: 'x' | 'y' | 'z', v: number, s = sp) => {
+      o.rotation[ax] = damp(o.rotation[ax], v, s, dt)
     }
-    J(this.legL, 'x', tThL); J(this.legR, 'x', tThR)
-    J(this.kneeL, 'x', tKnL); J(this.kneeR, 'x', tKnR)
-    J(this.armL, 'x', tArmLx); J(this.armL, 'z', tArmLz); J(this.elbowL, 'x', tElbL)
-    J(this.armR, 'x', tArmRx); J(this.armR, 'z', tArmRz); J(this.elbowR, 'x', tElbR)
-    J(this.gunGroup, 'x', tGunRx, 11)
+    J(this.legL, 'x', pose.thL); J(this.legR, 'x', pose.thR)
+    J(this.kneeL, 'x', pose.knL); J(this.kneeR, 'x', pose.knR)
+    J(this.armL, 'x', pose.armLx); J(this.armL, 'z', pose.armLz); J(this.elbowL, 'x', pose.elbL)
+    J(this.armR, 'x', pose.armRx); J(this.armR, 'z', pose.armRz); J(this.elbowR, 'x', pose.elbR)
+    J(this.gunGroup, 'x', pose.gunRx, action !== 'none' ? 18 : 11)
 
     // ---- 躯干 / 头部 ----
-    this.upper.position.y = damp(this.upper.position.y, tUpperY, 12, dt)
+    this.upper.position.y = damp(this.upper.position.y, pose.upperY, 12, dt)
     const leanF = this.seated ? 0.1 : runK * 0.16 + moveK * 0.04
     const pitchLean = this.seated || this.dropping ? 0 : -this.pitch * 0.5
-    this.upper.rotation.x = damp(this.upper.rotation.x, pitchLean + leanF, 15, dt)
+    this.upper.rotation.x = damp(this.upper.rotation.x, pitchLean + leanF + pose.upperRx, 15, dt)
+    this.upper.rotation.y = damp(this.upper.rotation.y, pose.upperRy, 13, dt)
     this.upper.rotation.z = damp(this.upper.rotation.z, sw * 0.04 * moveK, 9, dt)
     const headPitch = this.seated || this.dropping ? 0 : -this.pitch * 0.24
-    this.headGrp.rotation.x = damp(this.headGrp.rotation.x, headPitch, 15, dt)
+    this.headGrp.rotation.x = damp(this.headGrp.rotation.x, headPitch + pose.headRx, 15, dt)
 
     // ---- 转向侧倾（重心感） ----
     const yawNow = this.lockYaw ?? this.yaw
@@ -403,11 +361,11 @@ export class Character {
     this.leanZ = damp(this.leanZ, leanT, 6, dt)
 
     // ---- 整体变换 ----
-    this.modelTilt = damp(this.modelTilt, freefall ? 0.95 : 0, 5, dt)
+    this.modelTilt = damp(this.modelTilt, state === 'freefall' ? 0.95 : 0, 5, dt)
     this.model.rotation.y = yawNow
     this.model.rotation.x = this.modelTilt
     this.model.rotation.z = this.leanZ
-    this.bobV = damp(this.bobV, tBob, 16, dt)
+    this.bobV = damp(this.bobV, pose.bob, 16, dt)
     const idleBreath = idle ? breath * 0.007 : 0
     this.model.position.set(this.pos.x, this.pos.y + this.bobV + idleBreath, this.pos.z)
 
@@ -442,6 +400,21 @@ export class Character {
     this.lastDamageT = ctx.time
     this.lastAttacker = attacker
     if (attacker) attacker.damageDealt += Math.min(dmg, Math.max(0, before))
+    // 受击动作：上身短促偏移（不打断换弹/投掷等长动作）
+    if (!this.action.active || this.action.kind === 'hit') {
+      if (attacker) {
+        // 攻击者相对朝向决定上身偏转方向
+        const rel = Math.atan2(attacker.pos.x - this.pos.x, attacker.pos.z - this.pos.z) - this.yaw
+        this.hitDir = Math.sin(rel) >= 0 ? 1 : -1
+      } else {
+        this.hitDir = Math.random() < 0.5 ? -1 : 1
+      }
+      this.action.start('hit', 0.26)
+    }
+    // AI 受重击短时停顿（硬直）
+    if (!this.isPlayer && dmg > 14) {
+      this.stunnedUntil = Math.max(this.stunnedUntil, ctx.time + 0.16)
+    }
     if (this.isPlayer) {
       ctx.sfx.hurt()
       let ang = 0
@@ -456,24 +429,76 @@ export class Character {
     }
   }
 
-  /** 死亡姿态：仰倒 + 四肢摊开 */
-  lieDown() {
+  /**
+   * 死亡姿态：按伤害来向选择倒地方向。
+   * 正面中弹 → 后倒；背面中弹 → 前扑；侧面中弹 → 向同侧倒。
+   */
+  lieDown(attacker: Character | null = null) {
     this.alive = false
     this.detachChute()
-    this.model.rotation.x = -Math.PI / 2
-    this.model.rotation.z = 0
-    this.model.position.y = this.pos.y + 0.22
-    this.upper.rotation.set(0, 0, 0)
+    this.action.cancel()
+
+    // 伤害来向（相对自身朝向）；无攻击者则随机后倒/侧倒
+    let mode: 'back' | 'front' | 'left' | 'right' = 'back'
+    const src = attacker ?? this.lastAttacker
+    if (src) {
+      let rel = Math.atan2(src.pos.x - this.pos.x, src.pos.z - this.pos.z) - this.yaw
+      while (rel > Math.PI) rel -= Math.PI * 2
+      while (rel < -Math.PI) rel += Math.PI * 2
+      const a = Math.abs(rel)
+      if (a < Math.PI * 0.3) mode = 'back'        // 正面被击 → 向后倒
+      else if (a > Math.PI * 0.7) mode = 'front'  // 背后被击 → 向前扑
+      else mode = rel > 0 ? 'right' : 'left'      // 侧面 → 向受击对侧倒
+    } else if (Math.random() < 0.4) {
+      mode = Math.random() < 0.5 ? 'left' : 'right'
+    }
+
     this.upper.position.y = 0
-    this.headGrp.rotation.set(0.2, 0.3, 0)
-    this.armL.rotation.set(-0.45, 0, -1.05)
-    this.armR.rotation.set(0.3, 0, 0.85)
-    this.elbowL.rotation.x = 0.35
-    this.elbowR.rotation.x = 0.2
-    this.legL.rotation.x = -0.12
-    this.legR.rotation.x = 0.18
-    this.kneeL.rotation.x = 0.3
-    this.kneeR.rotation.x = 0.12
+    this.upper.rotation.set(0, 0, 0)
+    this.model.rotation.z = 0
+
+    if (mode === 'front') {
+      // 前扑：脸朝下，手臂前伸
+      this.model.rotation.x = Math.PI / 2
+      this.model.position.y = this.pos.y + 0.16
+      this.headGrp.rotation.set(-0.15, 0.25, 0)
+      this.armL.rotation.set(-2.6, 0, -0.25)
+      this.armR.rotation.set(-2.4, 0, 0.3)
+      this.elbowL.rotation.x = 0.2
+      this.elbowR.rotation.x = 0.35
+      this.legL.rotation.x = 0.08
+      this.legR.rotation.x = -0.14
+      this.kneeL.rotation.x = 0.25
+      this.kneeR.rotation.x = 0.45
+    } else if (mode === 'left' || mode === 'right') {
+      // 侧倒：蜷缩
+      const s = mode === 'right' ? 1 : -1
+      this.model.rotation.x = 0
+      this.model.rotation.z = s * Math.PI / 2
+      this.model.position.y = this.pos.y + 0.3
+      this.headGrp.rotation.set(0.3, s * 0.3, 0)
+      this.armL.rotation.set(-0.7, 0, -0.5)
+      this.armR.rotation.set(-0.55, 0, 0.45)
+      this.elbowL.rotation.x = 0.85
+      this.elbowR.rotation.x = 0.7
+      this.legL.rotation.x = -0.55
+      this.legR.rotation.x = -0.3
+      this.kneeL.rotation.x = 0.9
+      this.kneeR.rotation.x = 0.65
+    } else {
+      // 后倒：仰面四肢摊开
+      this.model.rotation.x = -Math.PI / 2
+      this.model.position.y = this.pos.y + 0.22
+      this.headGrp.rotation.set(0.2, 0.3, 0)
+      this.armL.rotation.set(-0.45, 0, -1.05)
+      this.armR.rotation.set(0.3, 0, 0.85)
+      this.elbowL.rotation.x = 0.35
+      this.elbowR.rotation.x = 0.2
+      this.legL.rotation.x = -0.12
+      this.legR.rotation.x = 0.18
+      this.kneeL.rotation.x = 0.3
+      this.kneeR.rotation.x = 0.12
+    }
   }
 
   removeModel(scene: THREE.Scene) {
