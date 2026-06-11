@@ -1,7 +1,7 @@
 /** 武器与物品静态数据定义（全部为原创虚构名称） */
 
-export type WeaponClass = 'AR' | 'DMR' | 'SR' | 'SG' | 'SMG' | 'PISTOL' | 'MELEE'
-export type AmmoType = 'light' | 'rifle' | 'sniper' | 'shell'
+export type WeaponClass = 'AR' | 'DMR' | 'SR' | 'SG' | 'SMG' | 'LMG' | 'XBOW' | 'PISTOL' | 'MELEE'
+export type AmmoType = 'light' | 'rifle' | 'sniper' | 'shell' | 'bolt'
 export type AttachSlot = 'scope' | 'muzzle' | 'grip' | 'mag'
 export type Rarity = 0 | 1 | 2 | 3
 
@@ -74,6 +74,36 @@ export const WEAPONS: Record<string, WeaponDef> = {
     pellets: 1, headMult: 1.5, spreadHip: 0, spreadAds: 0, recoil: 0,
     adsFov: 62, slots: [], tier: 0.5,
   },
+  boar: {
+    id: 'boar', name: '野猪轻机枪', cls: 'LMG', auto: true,
+    mag: 75, dmg: 23, rpm: 640, reload: 5.4, range: 320, ammo: 'rifle',
+    pellets: 1, headMult: 2.0, spreadHip: 3.2, spreadAds: 0.3, recoil: 0.42,
+    adsFov: 52, slots: ['scope', 'muzzle'], tier: 4.9,
+  },
+  tempest: {
+    id: 'tempest', name: '风暴连发霰弹枪', cls: 'SG', auto: true,
+    mag: 8, dmg: 11, rpm: 190, reload: 4.0, range: 36, ammo: 'shell',
+    pellets: 7, headMult: 1.5, spreadHip: 4.6, spreadAds: 3.6, recoil: 0.95,
+    adsFov: 55, slots: ['muzzle', 'mag'], tier: 4.1,
+  },
+  whisper: {
+    id: 'whisper', name: '猎影弩', cls: 'XBOW', auto: false,
+    mag: 1, dmg: 88, rpm: 26, reload: 3.0, range: 130, ammo: 'bolt',
+    pellets: 1, headMult: 2.4, spreadHip: 1.4, spreadAds: 0.12, recoil: 0.2,
+    adsFov: 46, slots: ['scope'], tier: 2.8,
+  },
+  bison: {
+    id: 'bison', name: '野牛重型手枪', cls: 'PISTOL', auto: false,
+    mag: 7, dmg: 42, rpm: 150, reload: 2.6, range: 160, ammo: 'rifle',
+    pellets: 1, headMult: 2.1, spreadHip: 2.2, spreadAds: 0.4, recoil: 0.85,
+    adsFov: 54, slots: ['muzzle'], tier: 2.6,
+  },
+  thunder: {
+    id: 'thunder', name: '雷霆战略狙击枪', cls: 'SR', auto: false,
+    mag: 5, dmg: 105, rpm: 32, reload: 4.4, range: 620, ammo: 'sniper',
+    pellets: 1, headMult: 2.5, spreadHip: 4.5, spreadAds: 0.03, recoil: 1.9,
+    adsFov: 28, slots: ['scope', 'muzzle'], tier: 6.2,
+  },
 }
 
 export const FISTS: WeaponDef = {
@@ -92,6 +122,7 @@ export const AMMO_META: Record<AmmoType, { name: string; w: number; stack: numbe
   rifle: { name: '步枪弹', w: 0.3, stack: 30 },
   sniper: { name: '狙击弹', w: 0.7, stack: 10 },
   shell: { name: '霰弹', w: 1.0, stack: 8 },
+  bolt: { name: '弩箭', w: 0.55, stack: 8 },
 }
 
 /** 护甲/头盔减伤比例与耐久 */

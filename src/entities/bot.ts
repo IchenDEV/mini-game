@@ -15,7 +15,8 @@ type BotState = 'wander' | 'goto' | 'loot' | 'combat' | 'flee' | 'heal'
 interface Band { min: number; max: number }
 const RANGE_BANDS: Record<string, Band> = {
   AR: { min: 10, max: 55 }, DMR: { min: 18, max: 110 }, SR: { min: 28, max: 170 },
-  SG: { min: 0, max: 13 }, SMG: { min: 0, max: 28 }, PISTOL: { min: 0, max: 32 }, MELEE: { min: 0, max: 1.6 },
+  SG: { min: 0, max: 13 }, SMG: { min: 0, max: 28 }, LMG: { min: 12, max: 70 },
+  XBOW: { min: 8, max: 45 }, PISTOL: { min: 0, max: 32 }, MELEE: { min: 0, max: 1.6 },
 }
 
 /** AI 敌人：感知 → 决策 → 移动/战斗 */

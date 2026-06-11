@@ -2,7 +2,7 @@ import { AmmoType, AMMO_META, BAG_CAPACITY, ITEMS } from './defs'
 
 /** 玩家背包：弹药池 + 可堆叠物品（药品/能量/投掷物/未安装配件） */
 export class Inventory {
-  ammo: Record<AmmoType, number> = { light: 0, rifle: 0, sniper: 0, shell: 0 }
+  ammo: Record<AmmoType, number> = { light: 0, rifle: 0, sniper: 0, shell: 0, bolt: 0 }
   items = new Map<string, number>()
   bagLevel = 0
 

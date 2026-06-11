@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { World } from '../world/world'
 import { Effects } from '../fx/effects'
 import { RNG } from '../utils/rng'
+import { surface } from '../rendering/materials'
 import { WeaponInst } from '../combat/weapon'
 import {
   WEAPONS, ITEMS, AMMO_META, RARITY_HEX, RARITY_NAMES,
@@ -102,11 +103,8 @@ function biased<T extends string>(table: [T, number][], bias: Record<string, num
 }
 
 // ---------- 物品图标 ----------
-const matCache = new Map<number, THREE.MeshLambertMaterial>()
-function lam(color: number): THREE.MeshLambertMaterial {
-  let m = matCache.get(color)
-  if (!m) { m = new THREE.MeshLambertMaterial({ color, flatShading: true }); matCache.set(color, m) }
-  return m
+function lam(color: number): THREE.MeshStandardMaterial {
+  return surface({ color, roughness: 0.6, metalness: 0.12, flatShading: true })
 }
 const ringGeo = new THREE.RingGeometry(0.42, 0.55, 20)
 const ringMats: THREE.MeshBasicMaterial[] = [0, 1, 2, 3].map(
@@ -263,7 +261,7 @@ export class LootSystem {
       return
     }
     if (gi.kind === 'ammo') {
-      const colors: Record<AmmoType, number> = { light: 0xc9c27a, rifle: 0xb58a4a, sniper: 0x9a4a4a, shell: 0xc2622f }
+      const colors: Record<AmmoType, number> = { light: 0xc9c27a, rifle: 0xb58a4a, sniper: 0x9a4a4a, shell: 0xc2622f, bolt: 0x7a8a55 }
       add(new THREE.BoxGeometry(0.26, 0.16, 0.18), colors[gi.ammoType!])
       add(new THREE.BoxGeometry(0.2, 0.05, 0.12), 0x3c4045, 0, 0.1, 0)
       return

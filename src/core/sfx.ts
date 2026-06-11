@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { clamp, angleDelta } from '../utils/math'
 
-type WClass = 'AR' | 'DMR' | 'SR' | 'SG' | 'SMG' | 'PISTOL' | 'MELEE'
+type WClass = 'AR' | 'DMR' | 'SR' | 'SG' | 'SMG' | 'LMG' | 'XBOW' | 'PISTOL' | 'MELEE'
 
 /** 全程序化 WebAudio 音效合成 */
 export class Sfx {
@@ -231,19 +231,28 @@ export class Sfx {
   // ---------------- 具体音效 ----------------
 
   shot(pos: THREE.Vector3 | null, cls: WClass, silenced = false) {
-    const max = silenced ? 70 : cls === 'SR' ? 480 : cls === 'SG' ? 320 : 300
+    if (cls === 'XBOW') {
+      // 弩：弦响 + 风切，天然安静
+      const s = this.spatial(pos, 60)
+      if (!s) return
+      this.noise(0.07, 1600, 2.4, s.vol * 0.4, s.pan, 'bandpass', 0.003)
+      this.tone(180, 0.06, s.vol * 0.22, s.pan, 'triangle', 90)
+      return
+    }
+    const max = silenced ? 70 : cls === 'SR' ? 480 : cls === 'SG' || cls === 'LMG' ? 340 : 300
     const s = this.spatial(pos, max)
     if (!s) return
     const v = s.vol * (silenced ? 0.35 : 1)
     const cfg: Record<WClass, [number, number, number]> = {
       AR: [0.16, 1500, 0.9], DMR: [0.2, 1100, 1.0], SR: [0.38, 750, 1.2],
-      SG: [0.3, 950, 1.1], SMG: [0.1, 2100, 0.75], PISTOL: [0.11, 1900, 0.7], MELEE: [0.1, 800, 0.3],
+      SG: [0.3, 950, 1.1], SMG: [0.1, 2100, 0.75], LMG: [0.2, 1000, 1.05],
+      XBOW: [0.07, 1600, 0.4], PISTOL: [0.11, 1900, 0.7], MELEE: [0.1, 800, 0.3],
     }
     const [dur, freq, amp] = cfg[cls]
     // 距离越远低频越闷
     const f = silenced ? 600 : freq * clamp(0.25 + s.vol, 0.3, 1)
     this.noise(dur, f, 1.2, v * amp * 0.9, s.pan)
-    if (!silenced && (cls === 'SR' || cls === 'SG' || cls === 'DMR')) {
+    if (!silenced && (cls === 'SR' || cls === 'SG' || cls === 'DMR' || cls === 'LMG')) {
       this.tone(90, 0.18, v * 0.5, s.pan, 'triangle', 40)
     }
     if (!silenced && cls === 'AR') this.tone(140, 0.07, v * 0.3, s.pan, 'square', 60)

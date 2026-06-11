@@ -3,24 +3,10 @@ import { WeaponInst } from '../combat/weapon'
 import { FISTS, WeaponDef, ARMOR_REDUCE } from '../items/defs'
 import type { Ctx } from '../core/ctx'
 import { clamp, damp } from '../utils/math'
-import { fabric, camo, chuteGores } from '../world/textures'
-
-let fabricTexCache: THREE.Texture | null = null
-function getFabricTex(): THREE.Texture {
-  if (!fabricTexCache) fabricTexCache = fabric()
-  return fabricTexCache
-}
-
-/** 迷彩贴图按服装基色缓存（贴图自带颜色） */
-const camoTexCache = new Map<number, THREE.Texture>()
-function getCamoTex(color: number): THREE.Texture {
-  let t = camoTexCache.get(color)
-  if (!t) {
-    t = camo(color)
-    camoTexCache.set(color, t)
-  }
-  return t
-}
+import { chuteGores } from '../world/textures'
+import { buildCharacterModel } from './characterModel'
+import { buildGunMesh } from './weaponModel'
+import { buildHelmetModel, buildVestModel, buildBagModel } from './gearModel'
 
 const chuteTexCache = new Map<number, THREE.Texture>()
 function getChuteTex(color: number): THREE.Texture {
@@ -98,9 +84,9 @@ export class Character {
   gunGroup = new THREE.Group()
   protected muzzleObj = new THREE.Object3D()
   protected headMesh!: THREE.Mesh
-  protected helmetMesh: THREE.Mesh | null = null
-  protected vestMesh: THREE.Mesh | null = null
-  protected bagMesh: THREE.Mesh | null = null
+  protected helmetMesh: THREE.Object3D | null = null
+  protected vestMesh: THREE.Object3D | null = null
+  protected bagMesh: THREE.Object3D | null = null
   protected walkPhase = 0
   protected bodyColor = 0x8a8a6a
   /** 降落伞（attachChute 创建，落地 detachChute） */
@@ -123,121 +109,27 @@ export class Character {
 
   buildModel(scene: THREE.Scene, bodyColor: number, skinColor = 0xc9a583) {
     this.bodyColor = bodyColor
-    const camoTex = getCamoTex(bodyColor)
-    const fabricTex = getFabricTex()
-    // 迷彩自带颜色，上下身用色相区分（裤子压暗）
-    const matBody = new THREE.MeshLambertMaterial({ map: camoTex })
-    const matPants = new THREE.MeshLambertMaterial({ map: camoTex, color: 0xb4b6ac })
-    const matGear = new THREE.MeshLambertMaterial({ color: 0x474d42, map: fabricTex })
-    const matDark = new THREE.MeshLambertMaterial({ color: 0x2e3230, map: fabricTex })
-    const matSkin = new THREE.MeshLambertMaterial({ color: skinColor })
-    const matBoot = new THREE.MeshLambertMaterial({ color: 0x33342e })
-
-    const mk = (parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, shadow = true) => {
-      const m = new THREE.Mesh(geo, mat)
-      m.position.set(x, y, z)
-      m.castShadow = shadow
-      parent.add(m)
-      return m
-    }
-
-    this.model.rotation.order = 'YXZ'
-
-    // ---- 骨盆 ----
-    mk(this.model, new THREE.BoxGeometry(0.38, 0.2, 0.25), matPants, 0, 0.97, 0)
-
-    // ---- 腿（大腿 → 膝 → 小腿 + 战术靴）----
-    const thighGeo = new THREE.CapsuleGeometry(0.105, 0.3, 3, 8)
-    const calfGeo = new THREE.CapsuleGeometry(0.085, 0.28, 3, 8)
-    for (const [hip, knee, sx] of [[this.legL, this.kneeL, -0.13], [this.legR, this.kneeR, 0.13]] as [THREE.Group, THREE.Group, number][]) {
-      hip.position.set(sx, 0.92, 0)
-      mk(hip, thighGeo, matPants, 0, -0.21, 0)
-      knee.position.set(0, -0.45, 0)
-      mk(knee, calfGeo, matPants, 0, -0.18, 0)
-      // 护膝
-      mk(knee, new THREE.BoxGeometry(0.12, 0.1, 0.05), matDark, 0, -0.04, 0.075)
-      // 靴 + 鞋底
-      mk(knee, new THREE.BoxGeometry(0.15, 0.12, 0.27), matBoot, 0, -0.4, 0.045)
-      mk(knee, new THREE.BoxGeometry(0.16, 0.035, 0.29), matDark, 0, -0.465, 0.05)
-      hip.add(knee)
-      this.model.add(hip)
-    }
-    // 右腿挂枪套
-    mk(this.legR, new THREE.BoxGeometry(0.07, 0.2, 0.13), matDark, 0.1, -0.16, 0.03)
-
-    // ---- 躯干 ----
-    const torso = mk(this.upper, new THREE.BoxGeometry(0.48, 0.6, 0.26), matBody, 0, 1.26, 0)
-    torso.receiveShadow = true
-    // 肩部垫片 + 领口
-    mk(this.upper, new THREE.BoxGeometry(0.13, 0.07, 0.2), matBody, -0.27, 1.53, 0)
-    mk(this.upper, new THREE.BoxGeometry(0.13, 0.07, 0.2), matBody, 0.27, 1.53, 0)
-    mk(this.upper, new THREE.BoxGeometry(0.2, 0.05, 0.18), matGear, 0, 1.575, 0)
-    // 战术胸挂：主板 + 三联弹匣包 + 杂物包
-    mk(this.upper, new THREE.BoxGeometry(0.44, 0.3, 0.07), matGear, 0, 1.34, 0.155)
-    for (const px of [-0.13, 0, 0.13]) {
-      mk(this.upper, new THREE.BoxGeometry(0.1, 0.14, 0.05), matDark, px, 1.25, 0.2)
-    }
-    mk(this.upper, new THREE.BoxGeometry(0.16, 0.09, 0.05), matDark, 0.02, 1.43, 0.19)
-    // 背部水袋包 + 电台 + 天线
-    mk(this.upper, new THREE.BoxGeometry(0.3, 0.34, 0.08), matBody, 0, 1.32, -0.165)
-    mk(this.upper, new THREE.BoxGeometry(0.1, 0.15, 0.06), matDark, 0.13, 1.43, -0.2)
-    const ant = mk(this.upper, new THREE.CylinderGeometry(0.008, 0.005, 0.3, 4), matDark, 0.13, 1.64, -0.2, false)
-    ant.rotation.z = -0.12
-    // 腰带 + 侧包
-    mk(this.upper, new THREE.BoxGeometry(0.5, 0.07, 0.28), matGear, 0, 0.995, 0)
-    mk(this.upper, new THREE.BoxGeometry(0.09, 0.13, 0.15), matGear, -0.27, 0.93, 0.02)
-
-    // ---- 头（颈 → 头组：脸 + 耳机 + 作训帽）----
-    mk(this.upper, new THREE.CylinderGeometry(0.065, 0.078, 0.1, 8), matSkin, 0, 1.585, 0)
-    this.headGrp.position.set(0, 1.68, 0)
-    this.headMesh = mk(this.headGrp, new THREE.SphereGeometry(0.165, 14, 11), matSkin, 0, 0, 0)
-    // 眼睛（轻微提神，不近看几乎不可见）
-    for (const ex of [-0.055, 0.055]) {
-      mk(this.headGrp, new THREE.BoxGeometry(0.026, 0.016, 0.012), matDark, ex, 0.012, 0.152, false)
-    }
-    // 通讯耳机
-    for (const ex of [-0.16, 0.16]) {
-      const cup = mk(this.headGrp, new THREE.CylinderGeometry(0.045, 0.045, 0.025, 8), matDark, ex, -0.01, 0, false)
-      cup.rotation.z = Math.PI / 2
-    }
-    const band = mk(this.headGrp, new THREE.CylinderGeometry(0.17, 0.17, 0.03, 10, 1, false, -0.5, Math.PI + 1), matDark, 0, 0.02, 0, false)
-    band.rotation.x = Math.PI / 2
-    band.rotation.z = Math.PI / 2
-    // 作训帽 + 帽檐
-    const cap = mk(this.headGrp, new THREE.SphereGeometry(0.175, 12, 6, 0, Math.PI * 2, 0, Math.PI * 0.52), matBody, 0, 0.022, 0)
-    cap.receiveShadow = true
-    const brim = mk(this.headGrp, new THREE.CylinderGeometry(0.168, 0.188, 0.024, 10, 1, false, -0.6, 1.2), matBody, 0, 0.045, 0.1)
-    brim.castShadow = false
-    this.upper.add(this.headGrp)
-
-    // ---- 手臂（肩 → 上臂 → 肘 → 前臂 + 战术手套）----
-    const upperArmGeo = new THREE.CapsuleGeometry(0.07, 0.24, 3, 8)
-    const foreArmGeo = new THREE.CapsuleGeometry(0.058, 0.22, 3, 8)
-    const gloveGeo = new THREE.SphereGeometry(0.062, 8, 6)
-    for (const [shoulder, elbow, sx] of [[this.armL, this.elbowL, -0.305], [this.armR, this.elbowR, 0.305]] as [THREE.Group, THREE.Group, number][]) {
-      shoulder.position.set(sx, 1.51, 0.01)
-      mk(shoulder, upperArmGeo, matBody, 0, -0.155, 0)
-      elbow.position.set(0, -0.32, 0)
-      mk(elbow, foreArmGeo, matBody, 0, -0.135, 0)
-      mk(elbow, gloveGeo, matDark, 0, -0.285, 0)
-      shoulder.add(elbow)
-      this.upper.add(shoulder)
-    }
-
-    // ---- 枪 ----
-    this.gunGroup.position.set(0.17, 1.39, 0.31)
-    this.upper.add(this.gunGroup)
-    this.model.add(this.upper)
+    const rig = buildCharacterModel({ bodyColor, skinColor })
+    this.model = rig.model
+    this.upper = rig.upper
+    this.headGrp = rig.headGrp
+    this.legL = rig.legL; this.legR = rig.legR
+    this.kneeL = rig.kneeL; this.kneeR = rig.kneeR
+    this.armL = rig.armL; this.armR = rig.armR
+    this.elbowL = rig.elbowL; this.elbowR = rig.elbowR
+    this.gunGroup = rig.gunGroup
+    this.muzzleObj = rig.muzzleObj
+    this.headMesh = rig.headMesh
     this.setWeaponVisual()
     this.prevYaw = this.yaw
     scene.add(this.model)
   }
 
-  /** 重建手中武器模型 */
+  /** 重建手中武器模型（含配件可视化） */
   setWeaponVisual() {
     while (this.gunGroup.children.length) this.gunGroup.remove(this.gunGroup.children[0])
     const def = this.weapon ? this.weapon.def : this.meleeDef
-    const grp = buildGunMesh(def, this.weapon?.attach.scope)
+    const grp = buildGunMesh(def, this.weapon?.attach ?? {})
     this.handsBusy = grp.group.children.length > 0
     this.gunGroup.add(grp.group)
     this.muzzleObj.position.set(0, 0.02, grp.len)
@@ -252,44 +144,24 @@ export class Character {
   setArmorVisual() {
     if (this.vestMesh) { this.upper.remove(this.vestMesh); this.vestMesh = null }
     if (this.armor) {
-      const colors = [0, 0x7a8a99, 0x46698c, 0x2c3d52]
-      const m = new THREE.Mesh(
-        new THREE.BoxGeometry(0.56, 0.44, 0.36),
-        new THREE.MeshLambertMaterial({ color: colors[this.armor.level], map: getFabricTex() }),
-      )
-      m.position.y = 1.27
-      m.castShadow = true
-      this.vestMesh = m
-      this.upper.add(m)
+      this.vestMesh = buildVestModel(this.armor.level)
+      this.upper.add(this.vestMesh)
     }
   }
 
   setHelmetVisual() {
     if (this.helmetMesh) { this.headGrp.remove(this.helmetMesh); this.helmetMesh = null }
     if (this.helmet) {
-      const colors = [0, 0xb0a890, 0x5d7a4a, 0x32404c]
-      const m = new THREE.Mesh(
-        new THREE.SphereGeometry(0.2, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2),
-        new THREE.MeshLambertMaterial({ color: colors[this.helmet.level] }),
-      )
-      m.position.y = 0.012
-      m.castShadow = true
-      this.helmetMesh = m
-      this.headGrp.add(m)
+      this.helmetMesh = buildHelmetModel(this.helmet.level)
+      this.headGrp.add(this.helmetMesh)
     }
   }
 
   setBagVisual(level: number) {
     if (this.bagMesh) { this.upper.remove(this.bagMesh); this.bagMesh = null }
     if (level > 0) {
-      const m = new THREE.Mesh(
-        new THREE.BoxGeometry(0.4, 0.36 + level * 0.1, 0.2 + level * 0.04),
-        new THREE.MeshLambertMaterial({ color: 0x6e5a3c, map: getFabricTex() }),
-      )
-      m.position.set(0, 1.26, -0.28)
-      m.castShadow = true
-      this.bagMesh = m
-      this.upper.add(m)
+      this.bagMesh = buildBagModel(level)
+      this.upper.add(this.bagMesh)
     }
   }
 
@@ -668,76 +540,3 @@ export function buildChute(color = 0xc9a23f): THREE.Group {
   return chute
 }
 
-/** 程序化枪模型 */
-export function buildGunMesh(def: WeaponDef, scopeId?: string): { group: THREE.Group; len: number } {
-  const g = new THREE.Group()
-  const dark = new THREE.MeshLambertMaterial({ color: 0x2e3338, flatShading: true })
-  const wood = new THREE.MeshLambertMaterial({ color: 0x5d4a32, flatShading: true })
-  const metal = new THREE.MeshLambertMaterial({ color: 0x4a5158, flatShading: true })
-  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0) => {
-    const m = new THREE.Mesh(geo, mat)
-    m.position.set(x, y, z)
-    m.rotation.x = rx
-    m.castShadow = true
-    g.add(m)
-    return m
-  }
-  let len = 0.6
-  switch (def.cls) {
-    case 'AR':
-      len = 0.78
-      add(new THREE.BoxGeometry(0.07, 0.1, 0.55), dark, 0, 0, 0.16)
-      add(new THREE.CylinderGeometry(0.022, 0.022, 0.34, 6), metal, 0, 0.01, 0.6, Math.PI / 2)
-      add(new THREE.BoxGeometry(0.05, 0.18, 0.07), dark, 0, -0.12, 0.1)
-      add(new THREE.BoxGeometry(0.05, 0.09, 0.22), wood, 0, -0.02, -0.22)
-      break
-    case 'DMR':
-      len = 0.92
-      add(new THREE.BoxGeometry(0.06, 0.1, 0.6), wood, 0, 0, 0.2)
-      add(new THREE.CylinderGeometry(0.02, 0.02, 0.45, 6), metal, 0, 0.01, 0.7, Math.PI / 2)
-      add(new THREE.BoxGeometry(0.05, 0.16, 0.06), dark, 0, -0.11, 0.12)
-      add(new THREE.BoxGeometry(0.05, 0.1, 0.26), wood, 0, -0.02, -0.24)
-      break
-    case 'SR':
-      len = 1.02
-      add(new THREE.BoxGeometry(0.06, 0.09, 0.62), wood, 0, 0, 0.18)
-      add(new THREE.CylinderGeometry(0.02, 0.02, 0.56, 6), metal, 0, 0.012, 0.74, Math.PI / 2)
-      add(new THREE.BoxGeometry(0.05, 0.11, 0.3), wood, 0, -0.03, -0.26)
-      break
-    case 'SG':
-      len = 0.86
-      add(new THREE.BoxGeometry(0.07, 0.1, 0.5), wood, 0, 0, 0.12)
-      add(new THREE.CylinderGeometry(0.028, 0.028, 0.42, 6), metal, 0, 0.015, 0.6, Math.PI / 2)
-      add(new THREE.CylinderGeometry(0.022, 0.022, 0.36, 6), metal, 0, -0.035, 0.56, Math.PI / 2)
-      add(new THREE.BoxGeometry(0.05, 0.1, 0.24), wood, 0, -0.02, -0.2)
-      break
-    case 'SMG':
-      len = 0.55
-      add(new THREE.BoxGeometry(0.07, 0.11, 0.38), dark, 0, 0, 0.08)
-      add(new THREE.CylinderGeometry(0.02, 0.02, 0.22, 6), metal, 0, 0.01, 0.38, Math.PI / 2)
-      add(new THREE.BoxGeometry(0.045, 0.2, 0.06), dark, 0, -0.13, 0.06)
-      break
-    case 'PISTOL':
-      len = 0.3
-      add(new THREE.BoxGeometry(0.05, 0.08, 0.24), dark, 0, 0, 0.08)
-      add(new THREE.BoxGeometry(0.045, 0.14, 0.06), dark, 0, -0.09, -0.02)
-      break
-    case 'MELEE':
-      if (def.id === 'pan') {
-        len = 0.4
-        add(new THREE.CylinderGeometry(0.16, 0.16, 0.035, 10), metal, 0, 0, 0.3, Math.PI / 2)
-        add(new THREE.BoxGeometry(0.04, 0.04, 0.24), dark, 0, 0, 0.08)
-      } else {
-        len = 0.2
-        // 徒手：无模型
-      }
-      break
-  }
-  if (scopeId && def.cls !== 'MELEE') {
-    const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, scopeId === 'scope_red' ? 0.08 : 0.18, 6), dark)
-    scope.rotation.x = Math.PI / 2
-    scope.position.set(0, 0.085, 0.16)
-    g.add(scope)
-  }
-  return { group: g, len }
-}
