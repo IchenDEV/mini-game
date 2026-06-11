@@ -8,7 +8,7 @@ import { surface } from '../rendering/materials'
 import type { MapConfig } from './mapConfig'
 import type { BiomeDef } from './biome'
 import type { WeatherDef } from './weather'
-import { buildPoi, house, carWreck, bridge } from './poi/poiTemplates'
+import { buildPoi, house, twoStoryHouse, carWreck, bridge } from './poi/poiTemplates'
 
 export type TexKind = 'plaster' | 'brick' | 'metal' | 'roof' | 'wood' | 'concrete' | 'bark' | 'leaves' | 'rooftiles' | 'leafLitter' | 'gravelPatch'
 const TEX_BUILDERS: Record<TexKind, () => THREE.Texture> = {
@@ -423,8 +423,11 @@ export class World {
     // 资源点
     for (const p of cfg.pois) buildPoi(this, p)
 
-    // 独栋房
-    for (const lh of loneHouses) house(this, lh.x, lh.z, lh.rot, 1)
+    // 独栋房（少量双层与单层交叉）
+    for (const lh of loneHouses) {
+      if (this.rng.chance(0.25)) twoStoryHouse(this, lh.x, lh.z, lh.rot, 1)
+      else house(this, lh.x, lh.z, lh.rot, 1)
+    }
 
     // 公路车辆残骸（沿道路撒）
     let placedWrecks = 0, wtries = 0

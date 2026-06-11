@@ -1,8 +1,8 @@
 import * as THREE from 'three'
-import { World, WALL_H } from '../world'
+import { World, WALL_H, type TexKind } from '../world'
 import type { PoiDef } from '../mapConfig'
 import { surface } from '../../rendering/materials'
-import { doorFrame, framedWindow, cornice, drainPipe, acUnit, sandbagLine, fenceRun, brokenWallTop } from './buildingParts'
+import { doorFrame, framedWindow, cornice, drainPipe, acUnit, sandbagLine, fenceRun, brokenWallTop, stairRun, railing } from './buildingParts'
 import { table, chair, cabinet, shelfRack, mattress, barrel } from '../props/props'
 
 /**
@@ -64,6 +64,275 @@ export function house(w: World, cx: number, cz: number, rot: number, tier: numbe
     w.lootPoints.push({ x: cx + x, y: g + 0.12, z: cz + z, tier })
   }
   w.mapRects.push({ x: cx, z: cz, w: rot % 2 === 0 ? hw : hd, d: rot % 2 === 0 ? hd : hw, color: '#4d5560' })
+}
+
+/**
+ * 双层民居：一层 + 室内直跑楼梯 + 二层 + 南向阳台 + 坡顶。
+ * 楼板留西侧楼梯口，玩家可沿楼梯上二层与阳台。
+ */
+export function twoStoryHouse(w: World, cx: number, cz: number, rot: number, tier: number, hw = 8, hd = 7) {
+  const g = w.groundHeight(cx, cz)
+  const B = w.localBuilder(cx, cz, rot)
+  const wallC = w.rng.pick(w.biome.houseWalls)
+  const wallC2 = new THREE.Color(wallC).multiplyScalar(0.92).getHex()
+  const roofC = w.rng.pick(w.biome.houseRoofs)
+  const wallT = w.pickWallTex()
+  const t = 0.28
+  const F1 = WALL_H            // 一层净高
+  const slabT = 0.22
+  const F2Y = g + F1 + slabT   // 二层地面
+  const F2H = 2.7              // 二层净高
+  const topY = F2Y + F2H       // 檐口高
+  const doorW = 1.5, doorH = 2.2
+
+  // ---- 一层墙 ----
+  const segW = (hw - doorW) / 2
+  B(segW, F1, t, -(doorW + segW) / 2, g, hd / 2 - t / 2, wallC, true, wallT)
+  B(segW, F1, t, (doorW + segW) / 2, g, hd / 2 - t / 2, wallC, true, wallT)
+  B(doorW, F1 - doorH, t, 0, g + doorH, hd / 2 - t / 2, wallC, true, wallT)
+  B(hw, F1, t, 0, g, -hd / 2 + t / 2, wallC, true, wallT)
+  B(t, F1, hd - t * 2, -hw / 2 + t / 2, g, 0, wallC, true, wallT)
+  B(t, F1, hd - t * 2, hw / 2 - t / 2, g, 0, wallC, true, wallT)
+
+  // ---- 楼板（西侧留楼梯口：x ∈ [-hw/2, -hw/2+1.4]，z ∈ [-hd/2, -hd/2+3.2]）----
+  const holeW = 1.4, holeD = 3.2
+  B(hw - holeW, slabT, hd, holeW / 2, g + F1, 0, 0x8d8579, true, 'concrete')
+  B(holeW, slabT, hd - holeD, -hw / 2 + holeW / 2, g + F1, holeD / 2, 0x8d8579, true, 'concrete')
+
+  // ---- 室内楼梯：贴西墙由南向北爬 ----
+  stairRun(B, -hw / 2 + t + 0.58, g, -hd / 2 + t + 2.62, F1 + slabT, '-z', 1.02, 0x97907f)
+
+  // ---- 二层墙（南墙开阳台门）----
+  const bDoorW = 1.1
+  const bSeg = (hw - bDoorW) / 2
+  B(bSeg, F2H, t, -(bDoorW + bSeg) / 2, F2Y, hd / 2 - t / 2, wallC2, true, wallT)
+  B(bSeg, F2H, t, (bDoorW + bSeg) / 2, F2Y, hd / 2 - t / 2, wallC2, true, wallT)
+  B(bDoorW, F2H - 2.05, t, 0, F2Y + 2.05, hd / 2 - t / 2, wallC2, true, wallT)
+  B(hw, F2H, t, 0, F2Y, -hd / 2 + t / 2, wallC2, true, wallT)
+  B(t, F2H, hd - t * 2, -hw / 2 + t / 2, F2Y, 0, wallC2, true, wallT)
+  B(t, F2H, hd - t * 2, hw / 2 - t / 2, F2Y, 0, wallC2, true, wallT)
+
+  // ---- 南向阳台：出挑板 + 三面护栏 ----
+  const balW = 3.4, balD = 1.3
+  B(balW, 0.16, balD, 0, F2Y - 0.16, hd / 2 + balD / 2, 0x8d8579, true, 'concrete')
+  railing(B, 0, F2Y, hd / 2 + balD - 0.06, balW, true)
+  railing(B, -balW / 2 + 0.05, F2Y, hd / 2 + balD / 2, balD - 0.1, false)
+  railing(B, balW / 2 - 0.05, F2Y, hd / 2 + balD / 2, balD - 0.1, false)
+
+  // ---- 屋顶 ----
+  B(hw + 0.5, 0.2, hd + 0.5, 0, topY, 0, new THREE.Color(roofC).multiplyScalar(0.75).getHex(), true, 'wood')
+  w.gableRoof(cx, cz, rot, hw, hd, topY + 0.2, roofC, wallC2)
+
+  // ---- 地坪 + 门口台阶 + 细部 ----
+  B(hw - 0.1, 0.1, hd - 0.1, 0, g + 0.02, 0, 0x8d8579, false, 'concrete')
+  B(hw * 0.5, 0.09, 1.5, 0, g + 0.01, hd / 2 + 0.8, 0x97907f, false, 'wood')
+  doorFrame(B, 0, g, hd / 2 - 0.06, doorW, doorH)
+  cornice(B, hw, hd, F2Y - g, F2H + 0.05, new THREE.Color(wallC2).multiplyScalar(0.82).getHex())
+  // 层间腰线
+  B(hw + 0.2, 0.14, 0.16, 0, g + F1 + 0.04, hd / 2 + 0.04, new THREE.Color(wallC).multiplyScalar(0.78).getHex(), false)
+  B(hw + 0.2, 0.14, 0.16, 0, g + F1 + 0.04, -hd / 2 - 0.04, new THREE.Color(wallC).multiplyScalar(0.78).getHex(), false)
+  drainPipe(B, hw / 2 - 0.2, g, hd / 2 + 0.1, F1 + F2H + slabT)
+  // 窗：一层北/东，二层北/东/西
+  framedWindow(B, 'z', -hw / 4, g, -hd / 2, -1)
+  framedWindow(B, 'x', hd / 4, g, hw / 2, 1)
+  framedWindow(B, 'z', hw / 4, F2Y, -hd / 2, -1)
+  framedWindow(B, 'x', -hd / 5, F2Y, hw / 2, 1)
+  framedWindow(B, 'x', hd / 5, F2Y, -hw / 2, -1)
+  if (w.rng.chance(0.5)) acUnit(B, 'x', 0, g + 1.7, -hw / 2, -1)
+
+  // ---- 家具 ----
+  table(B, hw / 4, g + 0.1, -hd / 4)
+  chair(B, hw / 4 - 0.9, g + 0.1, -hd / 4, 1)
+  cabinet(B, hw / 2 - 0.85, F2Y + 0.02, -hd / 2 + 0.6)
+  mattress(B, -hw / 4, F2Y + 0.04, -hd / 4)
+
+  // ---- 战利品：一层 2 + 二层 2 + 阳台 1（二层略升档）----
+  const pts: [number, number, number, number][] = [
+    [hw / 4, -hd / 5, 0.12, tier],
+    [-hw / 5, hd / 5, 0.12, tier],
+    [hw / 5, -hd / 5, F1 + slabT + 0.12, tier],
+    [-hw / 5, hd / 4, F1 + slabT + 0.12, Math.min(3, tier + (w.rng.chance(0.5) ? 1 : 0))],
+    [0, hd / 2 + 0.7, F1 + slabT + 0.12, tier],
+  ]
+  for (const [lx, lz, ly, tt] of pts) {
+    const [x, z] = w.rotPt(lx, lz, rot)
+    w.lootPoints.push({ x: cx + x, y: g + ly, z: cz + z, tier: tt })
+  }
+  w.mapRects.push({ x: cx, z: cz, w: rot % 2 === 0 ? hw : hd, d: rot % 2 === 0 ? hd : hw, color: '#5d6878' })
+}
+
+/**
+ * 公寓楼：两层大开间 + 屋顶平台（女儿墙），
+ * 东端楼梯上二层、西端楼梯上屋顶，西侧二层长阳台。
+ */
+export function apartment(w: World, cx: number, cz: number, rot: number, tier: number) {
+  const g = w.groundHeight(cx, cz)
+  const B = w.localBuilder(cx, cz, rot)
+  const aw = 13, ad = 8, t = 0.3
+  const wallC = w.rng.pick([0x9a948a, 0x8f9296, 0xa39884, 0x96907e])
+  const wallT: TexKind = w.biome.id === 'jungle' ? 'plaster' : 'concrete'
+  const F1 = WALL_H, slabT = 0.22
+  const F2Y = g + F1 + slabT
+  const F2H = 2.7
+  const roofY = F2Y + F2H            // 屋顶板底
+  const roofTop = roofY + slabT      // 屋顶站面
+  const doorW = 1.6, doorH = 2.2
+
+  // ---- 一层墙：南墙中央开门 + 北墙开后门 ----
+  const segW = (aw - doorW) / 2
+  for (const sz of [1, -1]) {
+    B(segW, F1, t, -(doorW + segW) / 2, g, sz * (ad / 2 - t / 2), wallC, true, wallT)
+    B(segW, F1, t, (doorW + segW) / 2, g, sz * (ad / 2 - t / 2), wallC, true, wallT)
+    B(doorW, F1 - doorH, t, 0, g + doorH, sz * (ad / 2 - t / 2), wallC, true, wallT)
+  }
+  B(t, F1, ad - t * 2, -aw / 2 + t / 2, g, 0, wallC, true, wallT)
+  B(t, F1, ad - t * 2, aw / 2 - t / 2, g, 0, wallC, true, wallT)
+
+  // ---- 二层楼板：东北角留楼梯口 ----
+  const hW = 1.5, hD = 3.4
+  B(aw - hW, slabT, ad, -hW / 2, g + F1, 0, 0x8d8579, true, 'concrete')
+  B(hW, slabT, ad - hD, aw / 2 - hW / 2, g + F1, hD / 2, 0x8d8579, true, 'concrete')
+  // 一层→二层楼梯：贴东墙由南向北
+  stairRun(B, aw / 2 - t - 0.62, g, -ad / 2 + t + 2.7, F1 + slabT, '-z', 1.05)
+
+  // ---- 二层墙 ----
+  const wallC2 = new THREE.Color(wallC).multiplyScalar(0.94).getHex()
+  // 南墙：阳台门 + 窗；北墙整面 + 窗
+  const bDoorW = 1.2
+  const bSeg = (aw - bDoorW) / 2
+  B(bSeg, F2H, t, -(bDoorW + bSeg) / 2, F2Y, ad / 2 - t / 2, wallC2, true, wallT)
+  B(bSeg, F2H, t, (bDoorW + bSeg) / 2, F2Y, ad / 2 - t / 2, wallC2, true, wallT)
+  B(bDoorW, F2H - 2.05, t, 0, F2Y + 2.05, ad / 2 - t / 2, wallC2, true, wallT)
+  B(aw, F2H, t, 0, F2Y, -ad / 2 + t / 2, wallC2, true, wallT)
+  B(t, F2H, ad - t * 2, -aw / 2 + t / 2, F2Y, 0, wallC2, true, wallT)
+  B(t, F2H, ad - t * 2, aw / 2 - t / 2, F2Y, 0, wallC2, true, wallT)
+
+  // ---- 屋顶板：西南角留楼梯口 + 女儿墙 ----
+  const rhW = 1.5, rhD = 3.4
+  B(aw - rhW, slabT, ad, rhW / 2, roofY, 0, 0x84888c, true, 'concrete')
+  B(rhW, slabT, ad - rhD, -aw / 2 + rhW / 2, roofY, -rhD / 2, 0x84888c, true, 'concrete')
+  // 二层→屋顶楼梯：贴西墙由北向南
+  stairRun(B, -aw / 2 + t + 0.62, F2Y, ad / 2 - t - 2.7, F2H + slabT, '+z', 1.05)
+  // 女儿墙（可作屋顶掩体）
+  const ppH = 0.95
+  B(aw + 0.2, ppH, 0.22, 0, roofTop, ad / 2 + 0.0, 0x90948a, true, wallT)
+  B(aw + 0.2, ppH, 0.22, 0, roofTop, -ad / 2 - 0.0, 0x90948a, true, wallT)
+  B(0.22, ppH, ad - 0.2, aw / 2 + 0.0, roofTop, 0, 0x90948a, true, wallT)
+  B(0.22, ppH, ad - 0.2, -aw / 2 - 0.0, roofTop, 0, 0x90948a, true, wallT)
+  // 屋顶设备：水箱 + 管井 + 天线
+  B(1.6, 1.2, 1.6, aw / 4, roofTop, -ad / 5, 0x7d8488, true, 'metal')
+  B(1.0, 0.7, 1.0, -aw / 6, roofTop, ad / 5, 0x6e7479, true, 'concrete')
+  B(0.07, 2.6, 0.07, aw / 3, roofTop, ad / 4, 0x4a5158, false, 'metal')
+
+  // ---- 二层南向长阳台 ----
+  const balW = 6.4, balD = 1.35
+  B(balW, 0.16, balD, 0, F2Y - 0.16, ad / 2 + balD / 2, 0x8d8579, true, 'concrete')
+  railing(B, 0, F2Y, ad / 2 + balD - 0.06, balW, true)
+  railing(B, -balW / 2 + 0.05, F2Y, ad / 2 + balD / 2, balD - 0.1, false)
+  railing(B, balW / 2 - 0.05, F2Y, ad / 2 + balD / 2, balD - 0.1, false)
+
+  // ---- 立面细部 ----
+  doorFrame(B, 0, g, ad / 2 - 0.06, doorW, doorH, 0x5d6a74)
+  for (const wx of [-aw / 3, aw / 3]) {
+    framedWindow(B, 'z', wx, g, ad / 2, 1)
+    framedWindow(B, 'z', wx, g, -ad / 2, -1)
+    framedWindow(B, 'z', wx, F2Y, -ad / 2, -1)
+  }
+  framedWindow(B, 'z', aw / 3, F2Y, ad / 2, 1)
+  framedWindow(B, 'x', 0, F2Y, -aw / 2, -1)
+  // 层间腰线 + 排水管 + 空调
+  for (const sz of [1, -1]) {
+    B(aw + 0.24, 0.16, 0.18, 0, g + F1 + 0.03, sz * (ad / 2 + 0.05), new THREE.Color(wallC).multiplyScalar(0.76).getHex(), false)
+  }
+  drainPipe(B, -aw / 2 + 0.2, g, ad / 2 + 0.12, F1 + F2H + slabT)
+  drainPipe(B, aw / 2 - 0.2, g, -ad / 2 - 0.12, F1 + F2H + slabT)
+  acUnit(B, 'z', -aw / 4, F2Y + 1.5, -ad / 2, -1)
+  B(aw - 0.2, 0.1, ad - 0.2, 0, g + 0.02, 0, 0x8d8579, false, 'concrete')
+
+  // ---- 室内 ----
+  shelfRack(w, B, -aw / 4, g + 0.06, -ad / 2 + 1.1, true)
+  table(B, aw / 5, g + 0.08, ad / 5)
+  cabinet(B, -aw / 2 + 0.9, F2Y + 0.02, -ad / 2 + 0.65)
+  mattress(B, aw / 5, F2Y + 0.04, -ad / 4)
+  mattress(B, -aw / 5, F2Y + 0.04, ad / 4)
+
+  // ---- 战利品：一层 2 + 二层 3 + 屋顶 1（屋顶升档）----
+  const lootPts: [number, number, number, number][] = [
+    [-aw / 4, ad / 5, 0.12, tier],
+    [aw / 4, -ad / 5, 0.12, tier],
+    [0, 0, F1 + slabT + 0.12, tier],
+    [-aw / 4, -ad / 5, F1 + slabT + 0.12, tier],
+    [0, ad / 2 + 0.7, F1 + slabT + 0.12, Math.min(3, tier + (w.rng.chance(0.4) ? 1 : 0))],
+    [aw / 5, 0, F1 + F2H + slabT * 2 + 0.12, Math.min(3, tier + 1)],
+  ]
+  for (const [lx, lz, ly, tt] of lootPts) {
+    const [x, z] = w.rotPt(lx, lz, rot)
+    w.lootPoints.push({ x: cx + x, y: g + ly, z: cz + z, tier: tt })
+  }
+  w.mapRects.push({ x: cx, z: cz, w: rot % 2 === 0 ? aw : ad, d: rot % 2 === 0 ? ad : aw, color: '#6d7890' })
+}
+
+/** 沿街商铺：三间连排平顶店面，橱窗 + 雨棚 + 招牌色带 */
+export function shopRow(w: World, cx: number, cz: number, rot: number, tier: number) {
+  const g = w.groundHeight(cx, cz)
+  const B = w.localBuilder(cx, cz, rot)
+  const unitW = 6, d = 6.5, n = 3
+  const t = 0.28
+  const h = 3.2
+  const totalW = unitW * n
+  const wallC = w.rng.pick([0xa39a88, 0x9b9486, 0x8f8a7c])
+  const signCs = [0xb3572c, 0x3e6e8c, 0x6e8c3e, 0x8c563e, 0x55648c]
+  // 背墙 + 侧墙 + 分户墙
+  B(totalW, h, t, 0, g, -d / 2 + t / 2, wallC, true, 'brick')
+  for (let i = 0; i <= n; i++) {
+    const x = -totalW / 2 + i * unitW
+    B(t, h, d, x + (i === 0 ? t / 2 : i === n ? -t / 2 : 0), g, 0, wallC, true, 'brick')
+  }
+  // 每间正面：门洞 + 橱窗 + 雨棚 + 招牌
+  for (let i = 0; i < n; i++) {
+    const ux = -totalW / 2 + unitW * (i + 0.5)
+    const signC = signCs[(i + w.rng.int(0, signCs.length - 1)) % signCs.length]
+    const dw = 1.2, dh = 2.15
+    // 正面墙拆三段：门侧 + 橱窗下沿/上沿
+    const winW = unitW - dw - t * 2 - 0.9
+    const doorX = ux - unitW / 2 + t + dw / 2 + 0.3
+    const winX = doorX + dw / 2 + 0.45 + winW / 2
+    // 门上沿
+    B(dw + 0.6, h - dh, t, doorX, g + dh, d / 2 - t / 2, wallC, true, 'brick')
+    // 橱窗：下裙墙 + 玻璃 + 上沿
+    B(winW + 0.3, 0.8, t, winX, g, d / 2 - t / 2, wallC, true, 'brick')
+    B(winW, 1.5, 0.12, winX, g + 0.8, d / 2 - t / 2, 0x2a3640, true)
+    B(winW + 0.3, h - 2.3, t, winX, g + 2.3, d / 2 - t / 2, wallC, true, 'brick')
+    // 边角立柱
+    B(0.32, h, t, ux - unitW / 2 + 0.16, g, d / 2 - t / 2, wallC, true, 'brick')
+    B(0.32, h, t, ux + unitW / 2 - 0.16, g, d / 2 - t / 2, wallC, true, 'brick')
+    // 招牌色带 + 雨棚（水平板 + 前缘垂条，避免随 POI 旋转的斜轴问题）
+    B(unitW - 0.5, 0.62, 0.16, ux, g + h - 0.72, d / 2 + 0.05, signC, false)
+    const awnC = new THREE.Color(signC).multiplyScalar(0.8).getHex()
+    B(unitW - 0.8, 0.08, 1.05, ux, g + 2.36, d / 2 + 0.52, awnC, false)
+    B(unitW - 0.8, 0.22, 0.07, ux, g + 2.2, d / 2 + 1.02, awnC, false)
+    // 门边填缝柱 + 门框
+    B(0.5, h, t, doorX + dw / 2 + 0.22, g, d / 2 - t / 2, wallC, true, 'brick')
+    doorFrame(B, doorX, g, d / 2 - 0.06, dw, dh, 0x6a6258)
+    // 室内：柜台 + 货架
+    cabinet(B, ux + unitW / 4 - 0.4, g + 0.05, d / 2 - 1.6, 0x6a5a42)
+    shelfRack(w, B, ux, g + 0.05, -d / 2 + 1.0, true)
+    // 战利品
+    const [lx1, lz1] = w.rotPt(ux, -d / 5, rot)
+    w.lootPoints.push({ x: cx + lx1, y: g + 0.12, z: cz + lz1, tier })
+    if (w.rng.chance(0.6)) {
+      const [lx2, lz2] = w.rotPt(ux - 1, d / 5, rot)
+      w.lootPoints.push({ x: cx + lx2, y: g + 0.12, z: cz + lz2, tier })
+    }
+  }
+  // 平顶 + 正面女儿墙 + 屋顶杂物
+  B(totalW + 0.4, 0.22, d + 0.4, 0, g + h, 0, 0x6e7176, true, 'concrete')
+  B(totalW + 0.4, 0.55, 0.2, 0, g + h + 0.22, d / 2 + 0.1, wallC, true, 'brick')
+  B(1.1, 0.8, 1.1, -totalW / 4, g + h + 0.22, -d / 5, 0x7d8488, true, 'metal')
+  B(totalW - 0.2, 0.08, d - 0.2, 0, g + 0.03, 0, 0x8d8579, false, 'concrete')
+  // 人行道
+  B(totalW + 1.5, 0.09, 1.8, 0, g + 0.01, d / 2 + 1.0, 0x97917f, false, 'concrete')
+  w.mapRects.push({ x: cx, z: cz, w: rot % 2 === 0 ? totalW : d, d: rot % 2 === 0 ? d : totalW, color: '#56606c' })
 }
 
 export function warehouse(w: World, cx: number, cz: number, rot: number, tier: number) {
@@ -325,13 +594,20 @@ export function huts(w: World, cx: number, cz: number, r: number, tier: number) 
 
 /** 镇子：房屋网格 + 仓库 */
 export function town(w: World, cx: number, cz: number, r: number, tier: number) {
-  const houseDefs: [number, number, number, number, number][] = [
-    [-34, -22, 0, 8, 6], [-16, -24, 0, 9, 6], [4, -22, 2, 8, 6], [22, -20, 0, 7, 5.5],
-    [-34, 2, 2, 8, 6], [-14, 4, 2, 10, 7], [6, 2, 2, 8, 6], [24, 4, 0, 7, 6],
-    [-26, 24, 0, 9, 6.5], [-4, 26, 2, 8, 6], [16, 24, 1, 8, 6], [36, 12, 1, 7, 5.5],
-  ]
   const k = r / 95
-  for (const [ox, oz, rot, hw, hd] of houseDefs) house(w, cx + ox * k, cz + oz * k, rot, tier, hw, hd)
+  // 多层与单层交叉：中心公寓楼 + 沿街商铺，外圈单层/双层民居混排
+  apartment(w, cx - 14 * k, cz + 4 * k, 2, tier)
+  shopRow(w, cx + 14 * k, cz - 22 * k, 0, tier)
+  const houseDefs: [number, number, number, number, number, boolean][] = [
+    [-34, -22, 0, 8, 6, false], [-16, -24, 0, 9, 6, true], [22, -20, 0, 7, 5.5, false],
+    [-34, 2, 2, 8, 6, true], [6, 2, 2, 8, 6, false], [24, 4, 0, 7, 6, true],
+    [-26, 24, 0, 9, 6.5, false], [-4, 26, 2, 8, 6, true], [16, 24, 1, 8, 6, false],
+    [36, 12, 1, 7, 5.5, false],
+  ]
+  for (const [ox, oz, rot, hw, hd, two] of houseDefs) {
+    if (two) twoStoryHouse(w, cx + ox * k, cz + oz * k, rot, tier, hw, hd)
+    else house(w, cx + ox * k, cz + oz * k, rot, tier, hw, hd)
+  }
   warehouse(w, cx + 2 * k, cz + 44 * k, 0, tier)
   carWreck(w, cx - 8, cz - 44 * k, true)
   carWreck(w, cx + 30, cz - 36 * k, false)
@@ -343,7 +619,9 @@ export function village(w: World, cx: number, cz: number, r: number, tier: numbe
     const a = (i / n) * Math.PI * 2 + w.rng.range(-0.25, 0.25)
     const d = w.rng.range(r * 0.25, r * 0.7)
     const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d
-    house(w, x, z, w.rng.int(0, 3), tier, w.rng.range(7, 9.5), w.rng.range(5.5, 7))
+    // 约 1/4 概率出双层民居，与单层交叉
+    if (w.rng.chance(0.28)) twoStoryHouse(w, x, z, w.rng.int(0, 3), tier, w.rng.range(7.5, 9), w.rng.range(6.5, 7.5))
+    else house(w, x, z, w.rng.int(0, 3), tier, w.rng.range(7, 9.5), w.rng.range(5.5, 7))
   }
   if (w.rng.chance(0.6)) carWreck(w, cx, cz, w.rng.chance(0.5))
 }
@@ -385,7 +663,7 @@ export function military(w: World, cx: number, cz: number, r: number, tier: numb
 
 export function farm(w: World, cx: number, cz: number, tier: number) {
   barn(w, cx, cz - 5, 1, tier)
-  house(w, cx - 20, cz + 18, 0, tier)
+  twoStoryHouse(w, cx - 20, cz + 18, 0, tier)
   house(w, cx + 22, cz + 14, 1, tier, 7, 5.5)
   silo(w, cx + 14, cz - 16)
   w.box(1.7, 1.1, 1.7, cx - 12, w.groundHeight(cx - 12, cz - 10), cz - 10, 0xb89a55, true, true, 'wood')

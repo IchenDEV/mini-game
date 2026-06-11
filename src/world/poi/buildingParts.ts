@@ -101,6 +101,45 @@ export function fenceRun(B: LocalBox, lx: number, g: number, lz: number, len: nu
   }
 }
 
+/**
+ * 直跑楼梯：实心踏步（每级一个从地面到踏面的盒子，全部参与碰撞，
+ * 级高 ≤ STEP_H 玩家可自动逐级走上）。
+ * dir：爬升方向（局部坐标）。lx/lz 为第一级踏步中心，g 为起步地面，rise 为总升高。
+ */
+export function stairRun(
+  B: LocalBox, lx: number, g: number, lz: number,
+  rise: number, dir: '+x' | '-x' | '+z' | '-z', width = 1.05, c = 0x8a8d90,
+) {
+  const n = Math.max(2, Math.ceil(rise / 0.42))
+  const stepH = rise / n
+  const depth = 0.34
+  for (let i = 0; i < n; i++) {
+    const adv = i * depth
+    const h = stepH * (i + 1)
+    const ax = dir === '+x' ? adv : dir === '-x' ? -adv : 0
+    const az = dir === '+z' ? adv : dir === '-z' ? -adv : 0
+    const alongX = dir === '+x' || dir === '-x'
+    B(alongX ? depth : width, h, alongX ? width : depth, lx + ax, g, lz + az, c, true, 'concrete')
+  }
+}
+
+/** 阳台/平台护栏：水平扶手 + 竖条；len 沿 alongX 方向，可挡人 */
+export function railing(B: LocalBox, lx: number, g: number, lz: number, len: number, alongX: boolean, h = 0.85, c = 0x5d6a74) {
+  if (alongX) {
+    B(len, 0.07, 0.07, lx, g + h - 0.07, lz, c, false, 'metal')
+    B(len, h - 0.1, 0.04, lx, g, lz, c, true)
+  } else {
+    B(0.07, 0.07, len, lx, g + h - 0.07, lz, c, false, 'metal')
+    B(0.04, h - 0.1, len, lx, g, lz, c, true)
+  }
+  const n = Math.max(2, Math.round(len / 1.1))
+  for (let i = 0; i <= n; i++) {
+    const t = -len / 2 + (len / n) * i
+    if (alongX) B(0.06, h - 0.07, 0.06, lx + t, g, lz, c, false, 'metal')
+    else B(0.06, h - 0.07, 0.06, lx, g, lz + t, c, false, 'metal')
+  }
+}
+
 /** 破损墙顶：随机残齿 + 墙根碎砖堆 */
 export function brokenWallTop(w: World, B: LocalBox, lx: number, g: number, lz: number, len: number, h: number, alongX: boolean, c: number) {
   const n = 2 + w.rng.int(0, 2)
