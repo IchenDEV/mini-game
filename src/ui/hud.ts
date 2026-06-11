@@ -1,6 +1,9 @@
+import * as THREE from 'three'
 import type { Ctx } from '../core/ctx'
 import { RARITY_COLORS, RARITY_NAMES, AMMO_META, ITEMS } from '../items/defs'
 import { clamp, fmtTime, DEG } from '../utils/math'
+
+const _v = new THREE.Vector3()
 
 const $ = (id: string) => document.getElementById(id)!
 
@@ -45,6 +48,7 @@ export class HUD {
   private fullmapWrap = $('fullmap-wrap')
   private fullmapC = $('fullmap') as HTMLCanvasElement
 
+  private dmgNums: { x: number; y: number; z: number; t: number; el: HTMLElement }[] = []
   private bannerT = 0
   private noticeT = 0
   private hitT = 0
@@ -97,6 +101,18 @@ export class HUD {
 
   zonePain() {
     this.zonePainT = 0.4
+  }
+
+  /** 世界坐标伤害飘字 */
+  damageNumber(x: number, y: number, z: number, dmg: number, head: boolean, ctx: Ctx) {
+    const el = document.createElement('div')
+    el.className = `dmgnum${head ? ' head' : ''}`
+    el.textContent = String(Math.round(dmg))
+    $('hud').appendChild(el)
+    this.dmgNums.push({ x, y: y + 0.25, z, t: 0, el })
+    if (this.dmgNums.length > 12) {
+      this.dmgNums.shift()!.el.remove()
+    }
   }
 
   flashWhite(strength: number) {
@@ -187,10 +203,16 @@ export class HUD {
     })
 
     // 顶部
-    const zs = ctx.zone.statusLabel()
-    this.zoneLabel.textContent = zs.label
-    this.zoneTimer.textContent = ctx.zone.mode === 'done' ? '' : fmtTime(ctx.zone.tLeft)
-    this.zonePill.className = `pill${zs.warn === 'warn' ? ' warn' : ''}${zs.warn === 'danger' ? ' danger' : ''}`
+    if (ctx.state === 'plane') {
+      this.zoneLabel.textContent = '运输机航行中 — 选择跳伞时机'
+      this.zoneTimer.textContent = ''
+      this.zonePill.className = 'pill'
+    } else {
+      const zs = ctx.zone.statusLabel()
+      this.zoneLabel.textContent = zs.label
+      this.zoneTimer.textContent = ctx.zone.mode === 'done' ? '' : fmtTime(ctx.zone.tLeft)
+      this.zonePill.className = `pill${zs.warn === 'warn' ? ' warn' : ''}${zs.warn === 'danger' ? ' danger' : ''}`
+    }
     this.aliveCount.textContent = String(ctx.aliveCount)
     this.killCount.textContent = String(p.kills)
 
@@ -233,8 +255,10 @@ export class HUD {
       if (this.bannerT <= 0) this.bannerEl.classList.remove('show')
     }
 
-    // 拾取提示
-    if (p.nearLoot && !p.dropping) {
+    // 拾取/跳伞提示
+    if (ctx.state === 'plane') {
+      this.promptShow(`<b>空格</b> 跳伞`)
+    } else if (p.nearLoot && !p.dropping) {
       const colorCls = `r${p.nearLoot.rarity}`
       this.promptShow(`<b>E</b> 拾取 <span class="${colorCls}">${p.nearLoot.name}</span>`)
     } else this.promptHide()
@@ -250,6 +274,26 @@ export class HUD {
     if (this.hintsT > 0) {
       this.hintsT -= dt
       if (this.hintsT <= 0) this.hints.style.opacity = '0'
+    }
+
+    // 伤害飘字
+    for (let i = this.dmgNums.length - 1; i >= 0; i--) {
+      const d = this.dmgNums[i]
+      d.t += dt
+      if (d.t > 0.85) {
+        d.el.remove()
+        this.dmgNums.splice(i, 1)
+        continue
+      }
+      _v.set(d.x, d.y + d.t * 1.1, d.z).project(ctx.camera)
+      if (_v.z > 1) {
+        d.el.style.opacity = '0'
+        continue
+      }
+      const sx = (_v.x * 0.5 + 0.5) * window.innerWidth
+      const sy = (-_v.y * 0.5 + 0.5) * window.innerHeight
+      d.el.style.transform = `translate(${sx}px, ${sy}px) translate(-50%,-100%) scale(${d.t < 0.12 ? 0.7 + d.t * 4 : 1.18})`
+      d.el.style.opacity = String(clamp(1.5 - d.t * 1.8, 0, 1))
     }
 
     this.minimapCoord.textContent = `${Math.round(p.pos.x)} , ${Math.round(p.pos.z)}`
@@ -297,6 +341,45 @@ export class HUD {
       g.arc(tx, ty, zone.target.r * pxPerM, 0, Math.PI * 2)
       g.stroke()
       g.setLineDash([])
+    }
+
+    // 运输机航线
+    const pl = ctx.plane
+    if (pl && !pl.done) {
+      const [lax, lay] = toC(pl.sx, pl.sz)
+      const [lbx, lby] = toC(pl.ex, pl.ez)
+      g.strokeStyle = 'rgba(255,255,255,0.55)'
+      g.lineWidth = 1.5
+      g.setLineDash([4, 6])
+      g.beginPath()
+      g.moveTo(lax, lay)
+      g.lineTo(lbx, lby)
+      g.stroke()
+      g.setLineDash([])
+      const [pfx, pfy] = toC(pl.x, pl.z)
+      if (pfx > -14 && pfx < W + 14 && pfy > -14 && pfy < H + 14) {
+        g.save()
+        g.translate(pfx, pfy)
+        g.rotate(Math.atan2(pl.dirX, -pl.dirZ))
+        g.fillStyle = '#ffffff'
+        g.beginPath()
+        g.moveTo(0, -8)
+        g.lineTo(3, 0)
+        g.lineTo(8, 2)
+        g.lineTo(8, 4.5)
+        g.lineTo(1.5, 3.5)
+        g.lineTo(1.5, 7)
+        g.lineTo(3.5, 9)
+        g.lineTo(-3.5, 9)
+        g.lineTo(-1.5, 7)
+        g.lineTo(-1.5, 3.5)
+        g.lineTo(-8, 4.5)
+        g.lineTo(-8, 2)
+        g.lineTo(-3, 0)
+        g.closePath()
+        g.fill()
+        g.restore()
+      }
     }
 
     // 空投

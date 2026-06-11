@@ -11,6 +11,7 @@ import { Input } from './input'
 import { Player } from '../entities/player'
 import { Bot, botName } from '../entities/bot'
 import { Character } from '../entities/character'
+import { PlaneRide } from '../world/plane'
 import { TPCamera } from './camera'
 import { RNG } from '../utils/rng'
 import { clamp } from '../utils/math'
@@ -99,21 +100,25 @@ export class Game {
     const zone = new SafeZone(scene, rng)
     const player = new Player()
 
+    // 运输机航线：随机方向，穿过安全区中心附近
+    const plane = new PlaneRide(
+      scene,
+      rng.range(0, Math.PI * 2),
+      zone.cur.x + rng.range(-90, 90),
+      zone.cur.z + rng.range(-90, 90),
+    )
+
     this.ctx = {
-      scene, camera, world, loot, fx, sfx, zone, combat, hud, input, player,
-      bots: [], chars: [], time: 0, state: 'drop', shots: [],
-      aliveCount: BOT_COUNT + 1, graceUntil: 20,
+      scene, camera, world, loot, fx, sfx, zone, combat, hud, input, player, plane,
+      bots: [], chars: [], time: 0, state: 'plane', shots: [],
+      aliveCount: BOT_COUNT + 1, graceUntil: 40,
       kill: this.kill,
     }
 
-    // 玩家跳伞起点
-    const pa = rng.range(0, Math.PI * 2)
-    const px = clamp(zone.cur.x + Math.cos(pa) * rng.range(60, 240), -340, 340)
-    const pz = clamp(zone.cur.z + Math.sin(pa) * rng.range(60, 240), -340, 340)
-    player.init(scene, px, pz)
+    player.init(scene, plane.x, plane.z)
     this.ctx.chars.push(player)
 
-    // AI
+    // AI：每人分配落点，跳伞里程取航线上最近处加抖动
     const spawns = [...world.botSpawns]
     for (let i = spawns.length - 1; i > 0; i--) {
       const j = rng.int(0, i)
@@ -124,6 +129,7 @@ export class Game {
       bot.name = botName(i)
       const sp = spawns[i % spawns.length]
       bot.init(scene, sp.x + rng.range(-3, 3), sp.z + rng.range(-3, 3), this.ctx)
+      bot.jumpS = clamp(plane.sAtNearest(sp.x, sp.z) + rng.range(-40, 40), plane.len * 0.06, plane.len * 0.92)
       this.ctx.bots.push(bot)
       this.ctx.chars.push(bot)
     }
@@ -132,6 +138,7 @@ export class Game {
     // UI 接线
     document.getElementById('btn-lock')!.addEventListener('click', () => {
       sfx.ensure()
+      sfx.ambientStart()
       this.started = true
       input.requestLock()
       document.getElementById('overlay-lock')!.classList.add('hidden')
@@ -203,13 +210,45 @@ export class Game {
         this.refreshLockOverlay()
       }
       if (ctx.input.pressed('KeyM')) ctx.hud.toggleFullmap()
+      if (ctx.input.pressed('KeyV')) {
+        this.cam.firstPerson = !this.cam.firstPerson
+        ctx.hud.notice(this.cam.firstPerson ? '第一人称视角' : '第三人称视角')
+      }
       if (ctx.input.pressed('Escape') && this.invUI.open) {
         this.invUI.toggle(ctx, false)
         this.refreshLockOverlay()
       }
       ctx.player.blockInput = this.invUI.open
 
-      if (ctx.state === 'drop') {
+      // 运输机飞行与 AI 跳伞投放
+      const pl = ctx.plane
+      if (pl && !pl.done) {
+        pl.update(dt, ctx.scene)
+        for (const bot of ctx.bots) {
+          if (bot.inPlane && (pl.s >= bot.jumpS || pl.done)) {
+            bot.jumpOut(pl.x + Math.random() * 4 - 2, pl.alt - 3, pl.z + Math.random() * 4 - 2)
+          }
+        }
+        ctx.sfx.planeUpdate(pl.x, pl.alt, pl.z)
+        if (pl.done) ctx.sfx.planeStop()
+      }
+
+      if (ctx.state === 'plane') {
+        const plane = pl!
+        // 机上视角环视
+        if (!ctx.player.blockInput) {
+          ctx.player.yaw -= ctx.input.mouseDX * 0.0023
+          ctx.player.pitch = clamp(ctx.player.pitch - ctx.input.mouseDY * 0.0023, -1.3, 1.35)
+        }
+        ctx.player.pos.set(plane.x, plane.alt - 5.5, plane.z)
+        const wantJump = !ctx.player.blockInput &&
+          (ctx.input.pressed('Space') || ctx.input.pressed('KeyF') || ctx.input.pressed('KeyE'))
+        if (wantJump || plane.done || plane.s >= plane.len - 55) {
+          ctx.player.jumpOut(plane.x, plane.alt - 3.5, plane.z)
+          ctx.state = 'drop'
+          ctx.hud.banner('自由落体 — Shift/F 加速下降', 'amber', 2.6)
+        }
+      } else if (ctx.state === 'drop') {
         ctx.player.updateDrop(dt, ctx)
         if (!ctx.player.dropping) {
           ctx.state = 'play'
@@ -220,7 +259,7 @@ export class Game {
 
       for (const bot of ctx.bots) bot.update(dt, ctx)
       ctx.combat.update(ctx, dt)
-      ctx.zone.update(dt, ctx)
+      if (ctx.state !== 'plane') ctx.zone.update(dt, ctx)
 
       // 阶段推进通知与空投
       if (ctx.zone.idx !== this.lastZoneIdx) {

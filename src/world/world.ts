@@ -2,6 +2,17 @@ import * as THREE from 'three'
 import { ColliderWorld } from './colliders'
 import { RNG } from '../utils/rng'
 import { clamp, lerp, smoothstep, dist2D } from '../utils/math'
+import * as TEX from './textures'
+
+type TexKind = 'plaster' | 'brick' | 'metal' | 'roof' | 'wood' | 'concrete'
+const TEX_BUILDERS: Record<TexKind, () => THREE.Texture> = {
+  plaster: TEX.plaster, brick: TEX.brick, metal: TEX.metalSiding,
+  roof: TEX.roofMetal, wood: TEX.woodPlanks, concrete: TEX.concrete,
+}
+/** 每张纹理对应的世界尺寸（米） */
+const TEX_METERS: Record<TexKind, number> = {
+  plaster: 3, brick: 2.3, metal: 2.6, roof: 3, wood: 1.8, concrete: 3,
+}
 
 // ---------------- 程序化噪声 ----------------
 function hash2(x: number, z: number): number {
@@ -48,7 +59,9 @@ export class World {
   private flattens: Flatten[] = []
   private roads: [number, number][][] = []
   private mapRects: MapRect[] = []
-  private matCache = new Map<number, THREE.MeshLambertMaterial>()
+  private matCache = new Map<string, THREE.MeshLambertMaterial>()
+  private texCache = new Map<string, THREE.Texture>()
+  private geoCache = new Map<string, THREE.BoxGeometry>()
   private boxGeo = new THREE.BoxGeometry(1, 1, 1)
   private forests: { x: number; z: number; r: number }[] = []
   bridgeX = 20
@@ -142,19 +155,58 @@ export class World {
     return false
   }
 
-  private mat(color: number): THREE.MeshLambertMaterial {
-    let m = this.matCache.get(color)
+  private tex(kind: TexKind): THREE.Texture {
+    let t = this.texCache.get(kind)
+    if (!t) {
+      t = TEX_BUILDERS[kind]()
+      this.texCache.set(kind, t)
+    }
+    return t
+  }
+
+  private mat(color: number, kind: TexKind | null = null): THREE.MeshLambertMaterial {
+    const key = `${color}|${kind ?? ''}`
+    let m = this.matCache.get(key)
     if (!m) {
       m = new THREE.MeshLambertMaterial({ color, flatShading: true })
-      this.matCache.set(color, m)
+      if (kind) m.map = this.tex(kind)
+      this.matCache.set(key, m)
     }
     return m
   }
 
-  /** 通用盒子：y 为底部高度 */
-  private box(w: number, h: number, d: number, x: number, y: number, z: number, color: number, collide = true, shadow = true): THREE.Mesh {
-    const mesh = new THREE.Mesh(this.boxGeo, this.mat(color))
-    mesh.scale.set(w, h, d)
+  /** 按世界尺寸缩放 UV 的盒子几何（带缓存），使贴图密度恒定 */
+  private geoSized(w: number, h: number, d: number, meters: number): THREE.BoxGeometry {
+    const key = `${w.toFixed(2)}|${h.toFixed(2)}|${d.toFixed(2)}|${meters}`
+    let geo = this.geoCache.get(key)
+    if (!geo) {
+      geo = new THREE.BoxGeometry(w, h, d)
+      const uv = geo.getAttribute('uv') as THREE.BufferAttribute
+      const k = 1 / meters
+      // BoxGeometry 面序：+x -x +y -y +z -z，每面 4 顶点
+      const spans: [number, number][] = [[d, h], [d, h], [w, d], [w, d], [w, h], [w, h]]
+      for (let f = 0; f < 6; f++) {
+        const [su, sv] = spans[f]
+        for (let v = 0; v < 4; v++) {
+          const i = f * 4 + v
+          uv.setXY(i, uv.getX(i) * su * k, uv.getY(i) * sv * k)
+        }
+      }
+      uv.needsUpdate = true
+      this.geoCache.set(key, geo)
+    }
+    return geo
+  }
+
+  /** 通用盒子：y 为底部高度；tk 指定贴图类别 */
+  private box(w: number, h: number, d: number, x: number, y: number, z: number, color: number, collide = true, shadow = true, tk: TexKind | null = null): THREE.Mesh {
+    let mesh: THREE.Mesh
+    if (tk) {
+      mesh = new THREE.Mesh(this.geoSized(w, h, d, TEX_METERS[tk]), this.mat(color, tk))
+    } else {
+      mesh = new THREE.Mesh(this.boxGeo, this.mat(color))
+      mesh.scale.set(w, h, d)
+    }
     mesh.position.set(x, y + h / 2, z)
     mesh.castShadow = shadow
     mesh.receiveShadow = true
@@ -167,12 +219,12 @@ export class World {
 
   /** 局部坐标盒子构建器（支持 0/90/180/270 旋转） */
   private localBuilder(cx: number, cz: number, rot: number) {
-    return (lw: number, lh: number, ld: number, lx: number, ly: number, lz: number, color: number, collide = true) => {
+    return (lw: number, lh: number, ld: number, lx: number, ly: number, lz: number, color: number, collide = true, tk: TexKind | null = null) => {
       let w = lw, d = ld, x = lx, z = lz
       if (rot === 1) { w = ld; d = lw; x = lz; z = -lx }
       else if (rot === 2) { x = -lx; z = -lz }
       else if (rot === 3) { w = ld; d = lw; x = -lz; z = lx }
-      return this.box(w, lh, d, cx + x, ly, cz + z, color, collide)
+      return this.box(w, lh, d, cx + x, ly, cz + z, color, collide, true, tk)
     }
   }
 
@@ -181,27 +233,28 @@ export class World {
     const B = this.localBuilder(cx, cz, rot)
     const wallC = this.rng.pick([0xc8b9a2, 0xb9a98f, 0xa9b0b5, 0xbfae93])
     const roofC = this.rng.pick([0x7a4a3a, 0x5d7283, 0x6e5d4a])
+    const wallT: TexKind = this.rng.chance(0.45) ? 'brick' : 'plaster'
     const t = 0.28
     const doorW = 1.5, doorH = 2.2
     // 前墙（+d/2）：门居中
     const segW = (w - doorW) / 2
-    B(segW, WALL_H, t, -(doorW + segW) / 2, g, d / 2 - t / 2, wallC)
-    B(segW, WALL_H, t, (doorW + segW) / 2, g, d / 2 - t / 2, wallC)
-    B(doorW, WALL_H - doorH, t, 0, g + doorH, d / 2 - t / 2, wallC)
+    B(segW, WALL_H, t, -(doorW + segW) / 2, g, d / 2 - t / 2, wallC, true, wallT)
+    B(segW, WALL_H, t, (doorW + segW) / 2, g, d / 2 - t / 2, wallC, true, wallT)
+    B(doorW, WALL_H - doorH, t, 0, g + doorH, d / 2 - t / 2, wallC, true, wallT)
     // 后墙
-    B(w, WALL_H, t, 0, g, -d / 2 + t / 2, wallC)
+    B(w, WALL_H, t, 0, g, -d / 2 + t / 2, wallC, true, wallT)
     // 侧墙
-    B(t, WALL_H, d - t * 2, -w / 2 + t / 2, g, 0, wallC)
-    B(t, WALL_H, d - t * 2, w / 2 - t / 2, g, 0, wallC)
+    B(t, WALL_H, d - t * 2, -w / 2 + t / 2, g, 0, wallC, true, wallT)
+    B(t, WALL_H, d - t * 2, w / 2 - t / 2, g, 0, wallC, true, wallT)
     // 屋顶 / 地板 / 门廊（视觉）
-    B(w + 0.7, 0.22, d + 0.7, 0, g + WALL_H, 0, roofC)
-    B(w - 0.1, 0.1, d - 0.1, 0, g + 0.02, 0, 0x8d8579, false)
-    B(w * 0.6, 0.09, 1.5, 0, g + 0.01, d / 2 + 0.8, 0x97907f, false)
+    B(w + 0.7, 0.22, d + 0.7, 0, g + WALL_H, 0, roofC, true, 'roof')
+    B(w - 0.1, 0.1, d - 0.1, 0, g + 0.02, 0, 0x8d8579, false, 'concrete')
+    B(w * 0.6, 0.09, 1.5, 0, g + 0.01, d / 2 + 0.8, 0x97907f, false, 'wood')
     // 窗户（视觉）
     B(1.3, 1.0, 0.08, -w / 4, g + 1.2, -d / 2 + 0.06, 0x222a31, false)
     B(0.08, 1.0, 1.2, w / 2 - 0.06, g + 1.2, 0, 0x222a31, false)
     // 室内杂物
-    if (this.rng.chance(0.45)) B(0.9, 0.9, 0.9, -w / 4, g + 0.1, -d / 4, 0x8a703f)
+    if (this.rng.chance(0.45)) B(0.9, 0.9, 0.9, -w / 4, g + 0.1, -d / 4, 0x8a703f, true, 'wood')
     // 战利品点
     const pts: [number, number][] = [[-w / 4, 0], [w / 4, -d / 5], [0, d / 5], [0, d / 2 + 1.2]]
     for (const [lx, lz] of pts) {
@@ -221,21 +274,21 @@ export class World {
     // 两端短墙开大门
     for (const sx of [-1, 1]) {
       const segD = (d - doorW) / 2
-      B(t, h, segD, sx * (w / 2 - t / 2), g, -(doorW + segD) / 2, wallC)
-      B(t, h, segD, sx * (w / 2 - t / 2), g, (doorW + segD) / 2, wallC)
-      B(t, h - doorH, doorW, sx * (w / 2 - t / 2), g + doorH, 0, wallC)
+      B(t, h, segD, sx * (w / 2 - t / 2), g, -(doorW + segD) / 2, wallC, true, 'metal')
+      B(t, h, segD, sx * (w / 2 - t / 2), g, (doorW + segD) / 2, wallC, true, 'metal')
+      B(t, h - doorH, doorW, sx * (w / 2 - t / 2), g + doorH, 0, wallC, true, 'metal')
     }
     // 长墙
-    B(w - t * 2, h, t, 0, g, d / 2 - t / 2, wallC)
-    B(w - t * 2, h, t, 0, g, -d / 2 + t / 2, wallC)
+    B(w - t * 2, h, t, 0, g, d / 2 - t / 2, wallC, true, 'metal')
+    B(w - t * 2, h, t, 0, g, -d / 2 + t / 2, wallC, true, 'metal')
     // 屋顶 / 地面
-    B(w + 0.8, 0.25, d + 0.8, 0, g + h, 0, roofC)
-    B(w - 0.2, 0.08, d - 0.2, 0, g + 0.02, 0, 0x868c90, false)
+    B(w + 0.8, 0.25, d + 0.8, 0, g + h, 0, roofC, true, 'roof')
+    B(w - 0.2, 0.08, d - 0.2, 0, g + 0.02, 0, 0x868c90, false, 'concrete')
     // 货箱
     const crates: [number, number, number][] = [[-6, -3, 1.3], [-5.8, 3.2, 1.3], [-2, -3.5, 1.2], [2.5, 3, 1.4], [6, -2.5, 1.3], [6.5, 2.8, 1.2]]
     for (const [lx, lz, s] of crates) {
-      B(s, s, s, lx, g, lz, this.rng.pick([0x8a703f, 0x7a6a50, 0x6f7a55]))
-      if (this.rng.chance(0.4)) B(s * 0.9, s * 0.9, s * 0.9, lx, g + s, lz, 0x8a703f)
+      B(s, s, s, lx, g, lz, this.rng.pick([0x8a703f, 0x7a6a50, 0x6f7a55]), true, 'wood')
+      if (this.rng.chance(0.4)) B(s * 0.9, s * 0.9, s * 0.9, lx, g + s, lz, 0x8a703f, true, 'wood')
     }
     // 战利品点
     const pts: [number, number][] = [[-7, 0], [-3.5, -3.5], [0, 3.5], [0, 0], [3.5, -3.5], [7, 0], [4, 3.5]]
@@ -251,10 +304,10 @@ export class World {
     const g = this.groundHeight(cx, cz)
     const B = this.localBuilder(cx, cz, rot)
     const c1 = this.rng.pick([0x3f6fa8, 0x2f8a8a, 0x9a5b3c, 0x5d7283, 0x55795e])
-    B(6.2, 2.5, 2.5, 0, g, 0, c1)
+    B(6.2, 2.5, 2.5, 0, g, 0, c1, true, 'metal')
     if (stack) {
       const c2 = this.rng.pick([0x3f6fa8, 0x2f8a8a, 0x9a5b3c, 0x5d7283])
-      B(6.2, 2.5, 2.5, 0.4, g + 2.5, 0, c2)
+      B(6.2, 2.5, 2.5, 0.4, g + 2.5, 0, c2, true, 'metal')
     }
     this.mapRects.push({ x: cx, z: cz, w: rot % 2 === 0 ? 6.2 : 2.5, d: rot % 2 === 0 ? 2.5 : 6.2, color: '#3f618c' })
   }
@@ -263,18 +316,18 @@ export class World {
     const g = this.groundHeight(cx, cz)
     const legC = 0x5d4a36, platC = 0x6e5d4a
     for (const [sx, sz] of [[-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2], [1.2, 1.2]]) {
-      this.box(0.3, 3.6, 0.3, cx + sx, g, cz + sz, legC)
+      this.box(0.3, 3.6, 0.3, cx + sx, g, cz + sz, legC, true, true, 'wood')
     }
-    this.box(3.4, 0.25, 3.4, cx, g + 3.6, cz, platC)
+    this.box(3.4, 0.25, 3.4, cx, g + 3.6, cz, platC, true, true, 'wood')
     // 护栏
-    this.box(3.4, 0.8, 0.12, cx, g + 3.85, cz - 1.65, legC)
-    this.box(3.4, 0.8, 0.12, cx, g + 3.85, cz + 1.65, legC)
-    this.box(0.12, 0.8, 3.4, cx - 1.65, g + 3.85, cz, legC)
+    this.box(3.4, 0.8, 0.12, cx, g + 3.85, cz - 1.65, legC, true, true, 'wood')
+    this.box(3.4, 0.8, 0.12, cx, g + 3.85, cz + 1.65, legC, true, true, 'wood')
+    this.box(0.12, 0.8, 3.4, cx - 1.65, g + 3.85, cz, legC, true, true, 'wood')
     // 实心台阶楼梯（+x 侧上行）
     const steps = 8
     for (let i = 0; i < steps; i++) {
       const hh = (3.6 / steps) * (i + 1)
-      this.box(1.3, hh, 0.62, cx + 2.4, g, cz - 1.55 + i * 0.45, 0x7a6a50)
+      this.box(1.3, hh, 0.62, cx + 2.4, g, cz - 1.55 + i * 0.45, 0x7a6a50, true, true, 'wood')
     }
     this.lootPoints.push({ x: cx, y: g + 3.97, z: cz, tier })
     this.mapRects.push({ x: cx, z: cz, w: 3.4, d: 3.4, color: '#5d4a36' })
@@ -288,17 +341,17 @@ export class World {
     const doorW = 4, doorH = 4.2
     for (const sx of [-1, 1]) {
       const segD = (d - doorW) / 2
-      B(t, h, segD, sx * (w / 2 - t / 2), g, -(doorW + segD) / 2, wallC)
-      B(t, h, segD, sx * (w / 2 - t / 2), g, (doorW + segD) / 2, wallC)
-      B(t, h - doorH, doorW, sx * (w / 2 - t / 2), g + doorH, 0, wallC)
+      B(t, h, segD, sx * (w / 2 - t / 2), g, -(doorW + segD) / 2, wallC, true, 'wood')
+      B(t, h, segD, sx * (w / 2 - t / 2), g, (doorW + segD) / 2, wallC, true, 'wood')
+      B(t, h - doorH, doorW, sx * (w / 2 - t / 2), g + doorH, 0, wallC, true, 'wood')
     }
-    B(w - t * 2, h, t, 0, g, d / 2 - t / 2, wallC)
-    B(w - t * 2, h, t, 0, g, -d / 2 + t / 2, wallC)
-    B(w + 0.8, 0.25, d + 0.8, 0, g + h, 0, roofC)
+    B(w - t * 2, h, t, 0, g, d / 2 - t / 2, wallC, true, 'wood')
+    B(w - t * 2, h, t, 0, g, -d / 2 + t / 2, wallC, true, 'wood')
+    B(w + 0.8, 0.25, d + 0.8, 0, g + h, 0, roofC, true, 'roof')
     // 干草垛
-    B(1.6, 1.2, 1.6, -3, g, -2, 0xb89a55)
-    B(1.6, 1.2, 1.6, -3, g, 2.2, 0xb89a55)
-    B(1.6, 1.2, 1.6, 3.5, g, 0, 0xb89a55)
+    B(1.6, 1.2, 1.6, -3, g, -2, 0xb89a55, true, 'wood')
+    B(1.6, 1.2, 1.6, -3, g, 2.2, 0xb89a55, true, 'wood')
+    B(1.6, 1.2, 1.6, 3.5, g, 0, 0xb89a55, true, 'wood')
     const pts: [number, number][] = [[-4.5, 0], [-1, -2.5], [1.5, 2.5], [4.5, -1.5], [0, 0]]
     for (const [lx, lz] of pts) {
       let x = lx, z = lz
@@ -311,7 +364,12 @@ export class World {
   private silo(cx: number, cz: number) {
     const g = this.groundHeight(cx, cz)
     const geo = new THREE.CylinderGeometry(2.4, 2.4, 8, 10)
-    const mesh = new THREE.Mesh(geo, this.mat(0x9aa0a6))
+    // 筒仓单独 clone 贴图设置环绕重复
+    const siloTex = this.tex('metal').clone()
+    siloTex.repeat.set(6, 3)
+    siloTex.needsUpdate = true
+    const siloMat = new THREE.MeshLambertMaterial({ color: 0x9aa0a6, flatShading: true, map: siloTex })
+    const mesh = new THREE.Mesh(geo, siloMat)
     mesh.position.set(cx, g + 4, cz)
     mesh.castShadow = true
     this.group.add(mesh)
@@ -349,14 +407,14 @@ export class World {
     const bx = this.bridgeX, bz = this.bridgeZ
     const deckC = 0x8d9296, railC = 0x5d6a74
     // 桥面（可行走）
-    this.box(7.2, 0.35, 34, bx, 3.0, bz, deckC)
+    this.box(7.2, 0.35, 34, bx, 3.0, bz, deckC, true, true, 'concrete')
     // 护栏
-    this.box(0.25, 0.95, 34, bx - 3.45, 3.35, bz, railC)
-    this.box(0.25, 0.95, 34, bx + 3.45, 3.35, bz, railC)
+    this.box(0.25, 0.95, 34, bx - 3.45, 3.35, bz, railC, true, true, 'concrete')
+    this.box(0.25, 0.95, 34, bx + 3.45, 3.35, bz, railC, true, true, 'concrete')
     // 桥墩
     for (const sz of [-8, 8]) {
-      this.box(1.2, 4.8, 1.2, bx - 2.5, -1.6, bz + sz, 0x6e7479)
-      this.box(1.2, 4.8, 1.2, bx + 2.5, -1.6, bz + sz, 0x6e7479)
+      this.box(1.2, 4.8, 1.2, bx - 2.5, -1.6, bz + sz, 0x6e7479, true, true, 'concrete')
+      this.box(1.2, 4.8, 1.2, bx + 2.5, -1.6, bz + sz, 0x6e7479, true, true, 'concrete')
     }
     this.mapRects.push({ x: bx, z: bz, w: 7.2, d: 34, color: '#888d92' })
   }
@@ -425,8 +483,8 @@ export class World {
     this.house(40, -262, 0, 1)
     this.house(82, -266, 1, 1, 7, 5.5)
     this.silo(74, -296)
-    this.box(1.7, 1.1, 1.7, 48, this.groundHeight(48, -290), -290, 0xb89a55)
-    this.box(1.7, 1.1, 1.7, 52, this.groundHeight(52, -278), -278, 0xb89a55)
+    this.box(1.7, 1.1, 1.7, 48, this.groundHeight(48, -290), -290, 0xb89a55, true, true, 'wood')
+    this.box(1.7, 1.1, 1.7, 52, this.groundHeight(52, -278), -278, 0xb89a55, true, true, 'wood')
 
     // 独栋房
     for (const lh of loneHouses) this.house(lh.x, lh.z, lh.rot, 1)
@@ -511,10 +569,34 @@ export class World {
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
     geo.computeVertexNormals()
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true })
+    const detail = TEX.grassDetail()
+    detail.repeat.set(150, 150)
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: detail })
     const mesh = new THREE.Mesh(geo, mat)
     mesh.receiveShadow = true
     this.group.add(mesh)
+
+    // 天空穹顶（渐变贴图，不受雾影响）
+    const skyGeo = new THREE.SphereGeometry(1180, 24, 12)
+    const skyMat = new THREE.MeshBasicMaterial({ map: TEX.skyGradient(), side: THREE.BackSide, fog: false, depthWrite: false })
+    const sky = new THREE.Mesh(skyGeo, skyMat)
+    sky.renderOrder = -10
+    this.group.add(sky)
+
+    // 远处云层（几片轻薄横向板）
+    const cloudMat = new THREE.MeshBasicMaterial({ color: 0xe9eef2, transparent: true, opacity: 0.55, fog: false, depthWrite: false })
+    const cloudRng = new RNG(77)
+    for (let i = 0; i < 10; i++) {
+      const cw = cloudRng.range(120, 300)
+      const cd = cloudRng.range(40, 90)
+      const cloud = new THREE.Mesh(new THREE.PlaneGeometry(cw, cd), cloudMat)
+      cloud.rotation.x = -Math.PI / 2
+      const a = cloudRng.range(0, Math.PI * 2)
+      const r = cloudRng.range(250, 700)
+      cloud.position.set(Math.cos(a) * r, cloudRng.range(165, 240), Math.sin(a) * r)
+      cloud.renderOrder = -9
+      this.group.add(cloud)
+    }
   }
 
   private buildWater() {
@@ -591,6 +673,44 @@ export class World {
     bushMesh.count = bi
     bushMesh.frustumCulled = false
     this.group.add(bushMesh)
+
+    // 草丛（交叉面片 ×2 个实例化网格）
+    const bladeTex = TEX.grassBlades()
+    const grassMat = new THREE.MeshLambertMaterial({
+      map: bladeTex, alphaTest: 0.4, side: THREE.DoubleSide, color: 0xa8b478,
+    })
+    const grassGeo = new THREE.PlaneGeometry(1.25, 0.78)
+    grassGeo.translate(0, 0.36, 0)
+    const GRASS_N = 1000
+    const gm1 = new THREE.InstancedMesh(grassGeo, grassMat, GRASS_N)
+    const gm2 = new THREE.InstancedMesh(grassGeo, grassMat, GRASS_N)
+    let gi = 0, gtries = 0
+    const grassTint = new THREE.Color()
+    const q2 = new THREE.Quaternion()
+    while (gi < GRASS_N && gtries++ < 6000) {
+      const x = this.rng.range(-360, 360), z = this.rng.range(-360, 360)
+      if (this.roadDist(x, z) < 4.5 || this.inPoi(x, z, 1)) continue
+      const h = this.groundHeight(x, z)
+      if (h < 0.7) continue
+      const yaw = this.rng.range(0, Math.PI)
+      const s = this.rng.range(0.7, 1.5)
+      vp.set(x, h, z)
+      vs.set(s, s * this.rng.range(0.8, 1.25), s)
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
+      gm1.setMatrixAt(gi, m4.clone().compose(vp, q, vs))
+      q2.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw + Math.PI / 2)
+      gm2.setMatrixAt(gi, m4.clone().compose(vp, q2, vs))
+      grassTint.setHSL(0.21 + this.rng.range(-0.03, 0.04), 0.34, 0.5 + this.rng.range(-0.07, 0.08))
+      gm1.setColorAt(gi, grassTint)
+      gm2.setColorAt(gi, grassTint)
+      gi++
+    }
+    gm1.count = gi
+    gm2.count = gi
+    gm1.frustumCulled = false
+    gm2.frustumCulled = false
+    this.group.add(gm1)
+    this.group.add(gm2)
 
     // 散石
     const rockGeo = new THREE.DodecahedronGeometry(1, 0)

@@ -257,3 +257,20 @@ body.locked { cursor: none; }
 .load-inner { text-align: center; }
 .load-inner h1 { letter-spacing: 0.4em; font-size: 30px; margin-bottom: 12px; }
 .load-inner p { color: var(--fg-dim); letter-spacing: 0.2em; font-size: 13px; animation: pulse 1.2s infinite; }
+
+/* 伤害飘字 */
+.dmgnum {
+  position: absolute;
+  left: 0; top: 0;
+  font-weight: 800;
+  font-size: 19px;
+  color: #ffe9c4;
+  text-shadow: 0 0 4px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.9);
+  pointer-events: none;
+  will-change: transform, opacity;
+  z-index: 30;
+}
+.dmgnum.head {
+  color: #ffb43c;
+  font-size: 23px;
+}

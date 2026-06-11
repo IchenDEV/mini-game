@@ -10,8 +10,9 @@ import type { Input } from './input'
 import type { Player } from '../entities/player'
 import type { Bot } from '../entities/bot'
 import type { Character } from '../entities/character'
+import type { PlaneRide } from '../world/plane'
 
-export type GameState = 'drop' | 'play' | 'end'
+export type GameState = 'plane' | 'drop' | 'play' | 'end'
 
 export interface ShotEvent {
   x: number; y: number; z: number
@@ -33,6 +34,7 @@ export interface Ctx {
   hud: HUD
   input: Input
   player: Player
+  plane: PlaneRide | null
   bots: Bot[]
   chars: Character[]
   time: number

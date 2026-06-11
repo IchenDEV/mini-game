@@ -73,6 +73,9 @@ export class Combat {
       this.fireRay(ctx, shooter, w, origin, _spread)
     }
     ctx.fx.muzzle(origin.x, origin.y, origin.z)
+    if (w.def.cls !== 'MELEE') {
+      ctx.fx.shell(origin.x, origin.y, origin.z, -Math.cos(shooter.yaw), Math.sin(shooter.yaw))
+    }
     ctx.sfx.shot(origin, w.def.cls, w.silenced)
     ctx.shots.push({ x: origin.x, y: origin.y, z: origin.z, t, loud: w.silenced ? 26 : w.def.cls === 'SR' ? 130 : 95, shooter })
     return true
@@ -103,6 +106,17 @@ export class Combat {
     _end.copy(origin).addScaledVector(dir, bestT)
     ctx.fx.tracer(origin.x, origin.y, origin.z, _end.x, _end.y, _end.z)
 
+    // 敌方子弹近飞呼啸
+    if (!shooter.isPlayer && ctx.player.alive && !ctx.player.dropping) {
+      const p = ctx.player
+      const hx = p.pos.x - origin.x, hy = p.pos.y + 1.35 - origin.y, hz = p.pos.z - origin.z
+      const tt = Math.max(0, Math.min(bestT, hx * dir.x + hy * dir.y + hz * dir.z))
+      const cx = origin.x + dir.x * tt - p.pos.x
+      const cy = origin.y + dir.y * tt - (p.pos.y + 1.35)
+      const cz = origin.z + dir.z * tt - p.pos.z
+      if (tt > 6 && cx * cx + cy * cy + cz * cz < 5.5) ctx.sfx.whiz(cx + cz)
+    }
+
     if (hitChar) {
       ctx.fx.blood(_end.x, _end.y, _end.z)
       const near = range * 0.45
@@ -113,6 +127,7 @@ export class Combat {
       hitChar.takeDamage(dmg, hitHead, shooter, w.def.name, ctx)
       if (shooter.isPlayer) {
         ctx.hud.hitmarker(hitHead, wasAlive && !hitChar.alive)
+        ctx.hud.damageNumber(_end.x, _end.y, _end.z, dmg, hitHead, ctx)
         ctx.sfx.hit(hitHead)
       }
     } else if (wh) {
@@ -143,6 +158,7 @@ export class Combat {
       best.takeDamage(def.dmg, false, attacker, def.name, ctx)
       if (attacker.isPlayer) {
         ctx.hud.hitmarker(false, wasAlive && !best.alive)
+        ctx.hud.damageNumber(best.pos.x, best.headWorldY() - 0.2, best.pos.z, def.dmg, false, ctx)
         ctx.sfx.hit(false)
       }
       return true

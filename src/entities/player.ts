@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { Character } from './character'
+import { Character, buildChute } from './character'
 import { Inventory } from '../items/inventory'
 import { WeaponInst } from '../combat/weapon'
 import { WEAPONS, FISTS, ITEMS, ARMOR_DURABILITY, Rarity } from '../items/defs'
@@ -28,7 +28,7 @@ export class Player extends Character {
   nadeSel = 0
   slot = 3
   ads = false
-  dropping = true
+  inPlane = true
   fastDrop = false
   casting: Casting | null = null
   nearLoot: GroundItem | null = null
@@ -46,27 +46,21 @@ export class Player extends Character {
     this.isPlayer = true
     this.name = '你'
     this.hp = 100
+    this.dropping = true
   }
 
   init(scene: THREE.Scene, x: number, z: number) {
     this.buildModel(scene, 0xb9a06a)
     this.pos.set(x, 150, z)
-    // 降落伞
-    const chute = new THREE.Group()
-    const canopy = new THREE.Mesh(
-      new THREE.ConeGeometry(2.3, 1.7, 8, 1, true),
-      new THREE.MeshLambertMaterial({ color: 0xc9a23f, side: THREE.DoubleSide }),
-    )
-    canopy.position.y = 4.4
-    chute.add(canopy)
-    for (const [sx, sz] of [[-1.6, 0], [1.6, 0], [0, -1.6], [0, 1.6]]) {
-      const lineGeo = new THREE.BoxGeometry(0.03, 2.2, 0.03)
-      const line = new THREE.Mesh(lineGeo, new THREE.MeshLambertMaterial({ color: 0x3c4045 }))
-      line.position.set(sx * 0.7, 2.9, sz * 0.7)
-      line.rotation.z = sx * -0.35
-      line.rotation.x = sz * 0.35
-      chute.add(line)
-    }
+    this.model.visible = false
+  }
+
+  /** 从飞机跳出 */
+  jumpOut(x: number, y: number, z: number) {
+    this.inPlane = false
+    this.pos.set(x, y, z)
+    this.model.visible = true
+    const chute = buildChute()
     this.model.add(chute)
     this.chute = chute
   }
@@ -206,13 +200,14 @@ export class Player extends Character {
     if (input.key('KeyD')) str++
     if (input.key('KeyA')) str--
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw)
-    const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw)
+    const rx = -Math.cos(this.yaw), rz = Math.sin(this.yaw)
     let dx = fx * fwd + rx * str
     let dz = fz * fwd + rz * str
     const dl = Math.hypot(dx, dz)
     if (dl > 1) { dx /= dl; dz /= dl }
 
-    this.fastDrop = input.key('KeyF')
+    this.fastDrop = input.key('KeyF') || input.key('ShiftLeft')
+    if (this.chute) this.chute.visible = !this.fastDrop
     this.vel.x = damp(this.vel.x, dx * 15, 2.4, dt)
     this.vel.z = damp(this.vel.z, dz * 15, 2.4, dt)
     this.vel.y = damp(this.vel.y, this.fastDrop ? -36 : -10.5, 2.4, dt)
@@ -231,6 +226,7 @@ export class Player extends Character {
       if (this.chute) { this.model.remove(this.chute); this.chute = null }
       ctx.sfx.land()
       ctx.fx.addShake(0.4)
+      ctx.fx.dust(this.pos.x, this.pos.y, this.pos.z, 14)
       ctx.hud.banner('已着陆 — 搜刮装备，留意安全区', 'amber', 3)
     }
     this.animate(dt)
@@ -268,7 +264,7 @@ export class Player extends Character {
     if (this.sprinting && this.casting) this.cancelCast(ctx)
 
     const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw)
-    const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw)
+    const rx = -Math.cos(this.yaw), rz = Math.sin(this.yaw)
     let dx = fx * fwd + rx * str
     let dz = fz * fwd + rz * str
     const dl = Math.hypot(dx, dz)

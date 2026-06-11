@@ -99,6 +99,91 @@ export class Sfx {
     o.stop(t + dur + 0.05)
   }
 
+  // ---------------- 环境音 ----------------
+
+  private ambientOn = false
+
+  ambientStart() {
+    if (!this.ctx || !this.master || !this.noiseBuf || this.ambientOn) return
+    this.ambientOn = true
+    // 风：循环噪声 + 缓慢起伏
+    const n = this.ctx.createBufferSource()
+    n.buffer = this.noiseBuf
+    n.loop = true
+    n.playbackRate.value = 0.3
+    const f = this.ctx.createBiquadFilter()
+    f.type = 'lowpass'
+    f.frequency.value = 320
+    const g = this.ctx.createGain()
+    g.gain.value = 0.035
+    const lfo = this.ctx.createOscillator()
+    lfo.frequency.value = 0.13
+    const lfoG = this.ctx.createGain()
+    lfoG.gain.value = 0.016
+    lfo.connect(lfoG)
+    lfoG.connect(g.gain)
+    n.connect(f); f.connect(g); g.connect(this.master)
+    n.start(); lfo.start()
+    // 偶发鸟鸣
+    const chirp = () => {
+      if (!this.ctx) return
+      const base = 2300 + Math.random() * 1400
+      const cnt = 2 + Math.floor(Math.random() * 3)
+      for (let i = 0; i < cnt; i++) {
+        this.tone(base + Math.random() * 500, 0.09, 0.018, (Math.random() - 0.5) * 1.2, 'sine', base * 0.8, i * 0.13)
+      }
+      window.setTimeout(chirp, 6000 + Math.random() * 16000)
+    }
+    window.setTimeout(chirp, 4000)
+  }
+
+  /** 子弹近飞呼啸 */
+  whiz(side: number) {
+    this.noise(0.09, 3400, 2.6, 0.2, clamp(side * 0.4, -0.8, 0.8), 'bandpass', 0.004)
+  }
+
+  // ---------------- 飞机引擎循环 ----------------
+
+  private planeNodes: { o1: OscillatorNode; o2: OscillatorNode; n: AudioBufferSourceNode; g: GainNode } | null = null
+
+  planeUpdate(x: number, y: number, z: number) {
+    if (!this.ctx || !this.master || !this.noiseBuf) return
+    if (!this.planeNodes) {
+      const o1 = this.ctx.createOscillator()
+      o1.type = 'sawtooth'
+      o1.frequency.value = 54
+      const o2 = this.ctx.createOscillator()
+      o2.type = 'sawtooth'
+      o2.frequency.value = 81
+      const n = this.ctx.createBufferSource()
+      n.buffer = this.noiseBuf
+      n.loop = true
+      n.playbackRate.value = 0.4
+      const f = this.ctx.createBiquadFilter()
+      f.type = 'lowpass'
+      f.frequency.value = 220
+      const g = this.ctx.createGain()
+      g.gain.value = 0
+      o1.connect(f); o2.connect(f); n.connect(f)
+      f.connect(g)
+      g.connect(this.master)
+      o1.start(); o2.start(); n.start()
+      this.planeNodes = { o1, o2, n, g }
+    }
+    const dist = Math.hypot(x - this.listenerPos.x, y - this.listenerPos.y, z - this.listenerPos.z)
+    const vol = 0.16 * Math.pow(clamp(1 - dist / 560, 0, 1), 1.6)
+    this.planeNodes.g.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.18)
+  }
+
+  planeStop() {
+    if (!this.planeNodes || !this.ctx) return
+    const { o1, o2, n, g } = this.planeNodes
+    g.gain.setTargetAtTime(0, this.ctx.currentTime, 0.5)
+    const stopT = this.ctx.currentTime + 2.5
+    o1.stop(stopT); o2.stop(stopT); n.stop(stopT)
+    this.planeNodes = null
+  }
+
   // ---------------- 具体音效 ----------------
 
   shot(pos: THREE.Vector3 | null, cls: WClass, silenced = false) {

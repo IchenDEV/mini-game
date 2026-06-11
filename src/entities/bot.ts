@@ -1,11 +1,11 @@
 import * as THREE from 'three'
-import { Character } from './character'
+import { Character, buildChute } from './character'
 import { WeaponInst } from '../combat/weapon'
 import { WEAPONS, ARMOR_DURABILITY, weaponScore, Rarity } from '../items/defs'
 import type { Ctx } from '../core/ctx'
 import type { GroundItem } from '../items/loot'
 import { RNG } from '../utils/rng'
-import { clamp, dampAngle, dist2D } from '../utils/math'
+import { clamp, damp, dampAngle, dist2D } from '../utils/math'
 
 const _muzzle = new THREE.Vector3()
 const _dir = new THREE.Vector3()
@@ -51,6 +51,11 @@ export class Bot extends Character {
   private wanderSprint = false
   private semiGap = 1.5
   private meleeLastT = -99
+  /** 跳伞里程（航线 s 值），由 Game 分配 */
+  jumpS = 0
+  inPlane = true
+  private dropTarget = { x: 0, z: 0 }
+  private chute: THREE.Group | null = null
 
   constructor(rngSeed: number) {
     super()
@@ -61,8 +66,11 @@ export class Bot extends Character {
   init(scene: THREE.Scene, x: number, z: number, ctx: Ctx) {
     const palette = [0x6e6a55, 0x5d6657, 0x7a6248, 0x56606e, 0x6b5a5a, 0x4f5d52]
     this.buildModel(scene, this.rng.pick(palette))
-    const g = ctx.world.col.groundAt(x, z, 1000)
-    this.pos.set(x, g, z)
+    this.dropTarget.x = x + this.rng.range(-18, 18)
+    this.dropTarget.z = z + this.rng.range(-18, 18)
+    this.pos.set(x, 500, z)
+    this.dropping = true
+    this.model.visible = false
     this.yaw = this.rng.range(0, Math.PI * 2)
     // 初始装备
     const roll = this.rng.next()
@@ -86,8 +94,51 @@ export class Bot extends Character {
     this.nextThink = this.rng.range(0, 0.3)
   }
 
+  /** 从飞机跳出 */
+  jumpOut(x: number, y: number, z: number) {
+    this.inPlane = false
+    this.pos.set(x, y, z)
+    this.model.visible = true
+    this.chute = buildChute(this.rng.pick([0xc9a23f, 0x8a9a4a, 0x4a7a9a, 0x9a5a4a]))
+    this.model.add(this.chute)
+  }
+
+  /** 跳伞下落：朝预定落点漂移 */
+  private updateDrop(dt: number, ctx: Ctx) {
+    const dx = this.dropTarget.x - this.pos.x
+    const dz = this.dropTarget.z - this.pos.z
+    const d = Math.hypot(dx, dz)
+    const g = ctx.world.col.groundAt(this.pos.x, this.pos.z, this.pos.y)
+    const high = this.pos.y - g > 42
+    if (this.chute) this.chute.visible = !high
+    const hs = high ? 13 : 6.5
+    if (d > 1.5) {
+      this.vel.x = damp(this.vel.x, (dx / d) * Math.min(hs, d * 1.5), 2.2, dt)
+      this.vel.z = damp(this.vel.z, (dz / d) * Math.min(hs, d * 1.5), 2.2, dt)
+      this.yaw = Math.atan2(dx, dz)
+    } else {
+      this.vel.x = damp(this.vel.x, 0, 2.2, dt)
+      this.vel.z = damp(this.vel.z, 0, 2.2, dt)
+    }
+    this.vel.y = damp(this.vel.y, high ? -32 : -9.5, 2.2, dt)
+    this.pos.addScaledVector(this.vel, dt)
+    if (this.pos.y <= g + 0.05) {
+      this.pos.y = g
+      this.vel.set(0, 0, 0)
+      this.dropping = false
+      this.onGround = true
+      if (this.chute) { this.model.remove(this.chute); this.chute = null }
+      ctx.fx.dust(this.pos.x, this.pos.y, this.pos.z, 10)
+    }
+    this.animate(dt)
+    this.legL.rotation.x = 0.35
+    this.legR.rotation.x = -0.25
+  }
+
   update(dt: number, ctx: Ctx) {
     if (!this.alive) return
+    if (this.inPlane) return
+    if (this.dropping) { this.updateDrop(dt, ctx); return }
     const t = ctx.time
 
     if (t < this.stunnedUntil) {
@@ -282,7 +333,7 @@ export class Bot extends Character {
     let bestD = 1e9
     for (const c of ctx.chars) {
       if (c === this || !c.alive) continue
-      if (c.isPlayer && ctx.player.dropping) continue
+      if (c.dropping) continue
       const d = dist2D(this.pos.x, this.pos.z, c.pos.x, c.pos.z)
       let range = 95 * clamp(this.skill, 0.8, 1.15)
       if (c.crouching) range *= 0.55

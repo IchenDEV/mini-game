@@ -38,6 +38,7 @@ export class Character {
   lastAttacker: Character | null = null
   stunnedUntil = -1
   wading = false
+  dropping = false
 
   // 控制意图（由控制器每帧写入）
   wishX = 0
@@ -202,9 +203,12 @@ export class Character {
       this.pos.y = g
       this.vel.y = 0
       this.onGround = true
-      if (hardLand && this.isPlayer) {
-        ctx.sfx.land()
-        ctx.fx.addShake(0.25)
+      if (hardLand) {
+        ctx.fx.dust(this.pos.x, this.pos.y, this.pos.z, 8)
+        if (this.isPlayer) {
+          ctx.sfx.land()
+          ctx.fx.addShake(0.25)
+        }
       }
       if (this.wantJump) {
         this.vel.y = JUMP_V
@@ -297,6 +301,28 @@ export class Character {
   removeModel(scene: THREE.Scene) {
     scene.remove(this.model)
   }
+}
+
+/** 降落伞模型（玩家与 AI 共用） */
+export function buildChute(color = 0xc9a23f): THREE.Group {
+  const chute = new THREE.Group()
+  const canopy = new THREE.Mesh(
+    new THREE.ConeGeometry(2.3, 1.7, 8, 1, true),
+    new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }),
+  )
+  canopy.position.y = 4.4
+  chute.add(canopy)
+  for (const [sx, sz] of [[-1.6, 0], [1.6, 0], [0, -1.6], [0, 1.6]]) {
+    const line = new THREE.Mesh(
+      new THREE.BoxGeometry(0.03, 2.2, 0.03),
+      new THREE.MeshLambertMaterial({ color: 0x3c4045 }),
+    )
+    line.position.set(sx * 0.7, 2.9, sz * 0.7)
+    line.rotation.z = sx * -0.35
+    line.rotation.x = sz * 0.35
+    chute.add(line)
+  }
+  return chute
 }
 
 /** 程序化枪模型 */

@@ -109,6 +109,30 @@ export class Effects {
     }
   }
 
+  /** 抛弹壳：向射手右侧弹出 */
+  shell(x: number, y: number, z: number, rx: number, rz: number) {
+    this.particle(
+      x, y - 0.06, z,
+      rx * (1.4 + Math.random() * 0.8) + (Math.random() - 0.5) * 0.5,
+      1.8 + Math.random() * 1.2,
+      rz * (1.4 + Math.random() * 0.8) + (Math.random() - 0.5) * 0.5,
+      0.55, 0.86, 0.64, 0.22,
+    )
+  }
+
+  /** 落地/奔跑扬尘 */
+  dust(x: number, y: number, z: number, n = 10) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = 0.8 + Math.random() * 1.8
+      this.particle(
+        x, y + 0.12, z,
+        Math.cos(a) * sp, 0.6 + Math.random() * 1.4, Math.sin(a) * sp,
+        0.4 + Math.random() * 0.35, 0.6, 0.54, 0.42,
+      )
+    }
+  }
+
   blood(x: number, y: number, z: number) {
     for (let i = 0; i < 8; i++) {
       this.particle(
