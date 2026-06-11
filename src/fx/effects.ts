@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { clamp } from '../utils/math'
+import { CameraImpulse, type ImpulseKind } from '../animation/cameraImpulse'
 
 function radialTex(inner: string, outer: string): THREE.CanvasTexture {
   const c = document.createElement('canvas')
@@ -23,6 +24,8 @@ interface Smoke {
   x: number; y: number; z: number
 }
 interface Flare { x: number; y: number; z: number; r: number; g: number; b: number; until: number }
+interface Puff { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; life: number; maxLife: number; vy: number; grow: number }
+interface Ring { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; maxR: number }
 
 const PARTICLE_MAX = 700
 
@@ -33,9 +36,19 @@ export class Effects {
   private flashes: Flash[] = []
   private smokes: Smoke[] = []
   private flares: Flare[] = []
+  private puffs: Puff[] = []
+  private rings: Ring[] = []
   smokeBlockers: { x: number; y: number; z: number; r: number; until: number }[] = []
   shake = 0
   time = 0
+  /** 命名相机冲击（camera.update 消费） */
+  readonly impulse = new CameraImpulse()
+
+  // 复用光源（构造时入场景，避免运行时材质重编译卡顿）
+  private muzzleLight = new THREE.PointLight(0xffc070, 0, 11, 1.8)
+  private boomLight = new THREE.PointLight(0xff9540, 0, 30, 1.6)
+  private boomLightI = 0
+  private muzzleLightI = 0
 
   private pGeo: THREE.BufferGeometry
   private pPos: Float32Array
@@ -63,10 +76,17 @@ export class Effects {
     const points = new THREE.Points(this.pGeo, pMat)
     points.frustumCulled = false
     scene.add(points)
+    scene.add(this.muzzleLight)
+    scene.add(this.boomLight)
   }
 
   addShake(v: number) {
     this.shake = clamp(this.shake + v, 0, 1.6)
+  }
+
+  /** 命名相机冲击快捷入口 */
+  kick(kind: ImpulseKind, scale = 1) {
+    this.impulse.add(kind, scale)
   }
 
   private particle(x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, r: number, g: number, b: number) {
@@ -97,6 +117,9 @@ export class Effects {
     s.scale.set(sc, sc, sc)
     this.scene.add(s)
     this.flashes.push({ sprite: s, life: 0.05, maxLife: 0.05 })
+    // 短时枪口点光源（复用单灯，最后开火者优先）
+    this.muzzleLight.position.set(x, y, z)
+    this.muzzleLightI = 5.5
   }
 
   impact(x: number, y: number, z: number, nx: number, ny: number, nz: number, color = 0x9a8d72) {
@@ -144,12 +167,17 @@ export class Effects {
   }
 
   explosion(x: number, y: number, z: number) {
+    // 火光核心
     const mat = new THREE.SpriteMaterial({ map: this.glowTex, color: 0xffb054, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
     const s = new THREE.Sprite(mat)
     s.position.set(x, y + 0.6, z)
     s.scale.set(7, 7, 7)
     this.scene.add(s)
     this.flashes.push({ sprite: s, life: 0.22, maxLife: 0.22 })
+    // 点光源脉冲
+    this.boomLight.position.set(x, y + 1.4, z)
+    this.boomLightI = 60
+    // 碎片 + 暗烟粒子
     for (let i = 0; i < 34; i++) {
       const a = Math.random() * Math.PI * 2
       const sp = 3 + Math.random() * 8
@@ -162,6 +190,33 @@ export class Effects {
         dark ? 0.18 : 0.95, dark ? 0.16 : 0.6, dark ? 0.15 : 0.2,
       )
     }
+    // 高速火星
+    for (let i = 0; i < 14; i++) {
+      const a = Math.random() * Math.PI * 2
+      const sp = 9 + Math.random() * 10
+      this.particle(
+        x, y + 0.5, z,
+        Math.cos(a) * sp, 2 + Math.random() * 9, Math.sin(a) * sp,
+        0.22 + Math.random() * 0.2, 1.0, 0.78, 0.3,
+      )
+    }
+    // 上升烟柱
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.SpriteMaterial({ map: this.smokeTex, color: 0x4c453c, transparent: true, opacity: 0.7, depthWrite: false })
+      const sp = new THREE.Sprite(m)
+      sp.position.set(x + (Math.random() - 0.5) * 1.4, y + 0.8 + i * 0.7, z + (Math.random() - 0.5) * 1.4)
+      sp.scale.set(1.6, 1.6, 1.6)
+      this.scene.add(sp)
+      this.puffs.push({ sprite: sp, mat: m, life: 1.7 + Math.random() * 0.7, maxLife: 2.4, vy: 1.6 + Math.random(), grow: 2.6 })
+    }
+    // 地面冲击波环
+    const rg = new THREE.RingGeometry(0.8, 1.0, 26)
+    const rm = new THREE.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
+    const ring = new THREE.Mesh(rg, rm)
+    ring.rotation.x = -Math.PI / 2
+    ring.position.set(x, y + 0.12, z)
+    this.scene.add(ring)
+    this.rings.push({ mesh: ring, mat: rm, life: 0.5, maxLife: 0.5, maxR: 10 })
   }
 
   smoke(x: number, y: number, z: number) {
@@ -205,6 +260,50 @@ export class Effects {
   update(dt: number) {
     this.time += dt
     this.shake = Math.max(0, this.shake - dt * 2.6)
+
+    // 复用光源衰减
+    if (this.muzzleLightI > 0) {
+      this.muzzleLightI = Math.max(0, this.muzzleLightI - dt * 110)
+      this.muzzleLight.intensity = this.muzzleLightI
+    }
+    if (this.boomLightI > 0) {
+      this.boomLightI = Math.max(0, this.boomLightI - dt * 150)
+      this.boomLight.intensity = this.boomLightI
+    }
+
+    // 爆炸烟柱
+    for (let i = this.puffs.length - 1; i >= 0; i--) {
+      const p = this.puffs[i]
+      p.life -= dt
+      if (p.life <= 0) {
+        this.scene.remove(p.sprite)
+        p.mat.dispose()
+        this.puffs.splice(i, 1)
+        continue
+      }
+      const k = 1 - p.life / p.maxLife
+      p.sprite.position.y += p.vy * dt
+      const sc = 1.6 + k * p.grow
+      p.sprite.scale.set(sc, sc, sc)
+      p.mat.opacity = 0.7 * (p.life / p.maxLife)
+    }
+
+    // 冲击波环
+    for (let i = this.rings.length - 1; i >= 0; i--) {
+      const r = this.rings[i]
+      r.life -= dt
+      if (r.life <= 0) {
+        this.scene.remove(r.mesh)
+        r.mesh.geometry.dispose()
+        r.mat.dispose()
+        this.rings.splice(i, 1)
+        continue
+      }
+      const k = 1 - r.life / r.maxLife
+      const sc = 1 + k * r.maxR
+      r.mesh.scale.set(sc, sc, 1)
+      r.mat.opacity = 0.55 * (1 - k)
+    }
 
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const t = this.tracers[i]

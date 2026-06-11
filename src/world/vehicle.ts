@@ -25,6 +25,7 @@ export class Vehicle {
   private steerVis = 0
   private hitCd = new Map<number, number>()
   private dustAcc = 0
+  private dustSide = 1
   private lowFuelNoticed = false
 
   constructor(scene: THREE.Scene, x: number, z: number, yaw: number, groundY: number) {
@@ -161,7 +162,10 @@ export class Vehicle {
       ctx.fx.blood(c.pos.x, c.pos.y + 1.0, c.pos.z)
       ctx.fx.dust(c.pos.x, c.pos.y, c.pos.z, 6)
       ctx.sfx.crash(this.pos, 0.8)
-      if (this.driver?.isPlayer) ctx.fx.addShake(0.32)
+      if (this.driver?.isPlayer) {
+        ctx.fx.addShake(0.32)
+        ctx.fx.kick('vehicleCrash', 0.55)
+      }
       c.takeDamage(dmg, false, this.driver, '载具撞击', ctx)
       this.speed *= 0.8
     }
@@ -185,6 +189,7 @@ export class Vehicle {
         ctx.fx.addShake(0.3)
         ctx.sfx.crash(this.pos, 1)
         ctx.fx.dust(this.pos.x + dirX * 1.8, this.pos.y + 0.7, this.pos.z + dirZ * 1.8, 8)
+        if (this.driver?.isPlayer) ctx.fx.kick('vehicleCrash', Math.min(1.3, sp / 12))
         // 高速撞墙驾驶员受伤
         if (this.driver && sp > 11) {
           this.driver.takeDamage((sp - 10) * 1.4, false, null, '车祸', ctx)
@@ -205,13 +210,17 @@ export class Vehicle {
     this.pos.y = damp(this.pos.y, g, 14, dt)
     // 水里强制减速
     if (g < ctx.world.waterY + 0.2) this.speed = clamp(this.speed, -2.5, 2.5)
-    // 车尾扬尘
+    // 车尾扬尘（高速更密集，左右轮交替）
     const spd = Math.abs(this.speed)
     if (spd > 5) {
       this.dustAcc += dt * spd
-      if (this.dustAcc > 2.6) {
+      const interval = spd > 12 ? 1.5 : 2.4
+      if (this.dustAcc > interval) {
         this.dustAcc = 0
-        ctx.fx.dust(this.pos.x - dirX * 1.7, this.pos.y + 0.15, this.pos.z - dirZ * 1.7, 3)
+        this.dustSide = -this.dustSide
+        const ox = dirZ * this.dustSide * 0.7
+        const oz = -dirX * this.dustSide * 0.7
+        ctx.fx.dust(this.pos.x - dirX * 1.7 + ox, this.pos.y + 0.15, this.pos.z - dirZ * 1.7 + oz, spd > 12 ? 5 : 3)
       }
     }
     // 视觉俯仰/侧倾
@@ -221,10 +230,11 @@ export class Vehicle {
     const left = ctx.world.groundHeight(this.pos.x - dirZ * 1.0, this.pos.z + dirX * 1.0)
     this.pitch = damp(this.pitch, Math.atan2(behind - ahead, 3.6), 8, dt)
     this.roll = damp(this.roll, Math.atan2(left - right, 2.0), 8, dt)
-    // 轮转 + 前轮转向
+    // 轮转 + 前轮转向（高速时轮胎细微摆动）
     this.wheelSpin += (this.speed / 0.42) * dt
+    const wobble = spd > 10 ? Math.sin(this.wheelSpin * 2.3) * 0.022 * Math.min(1, (spd - 10) / 6) : 0
     for (const w of this.wheels) w.rotation.x = this.wheelSpin
-    for (const p of this.frontPivots) p.rotation.y = this.steerVis
+    for (const p of this.frontPivots) p.rotation.y = this.steerVis + wobble
     this.sync()
   }
 

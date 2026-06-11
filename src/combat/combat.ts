@@ -114,7 +114,10 @@ export class Combat {
       const cx = origin.x + dir.x * tt - p.pos.x
       const cy = origin.y + dir.y * tt - (p.pos.y + 1.35)
       const cz = origin.z + dir.z * tt - p.pos.z
-      if (tt > 6 && cx * cx + cy * cy + cz * cz < 5.5) ctx.sfx.whiz(cx + cz)
+      if (tt > 6 && cx * cx + cy * cy + cz * cz < 5.5) {
+        ctx.sfx.whiz(cx + cz)
+        ctx.fx.kick('nearMiss')
+      }
     }
 
     if (hitChar) {
@@ -231,7 +234,10 @@ export class Combat {
         if (dmg > 1) c.takeDamage(dmg, false, g.thrower, '破片手雷', ctx)
       }
       const pd = ctx.player.pos.distanceTo(g.pos)
-      if (pd < 26) ctx.fx.addShake(1.1 * (1 - pd / 26))
+      if (pd < 26) {
+        ctx.fx.addShake(1.1 * (1 - pd / 26))
+        ctx.fx.kick('explosion', 1 - pd / 26)
+      }
     } else if (g.type === 'smoke') {
       ctx.fx.smoke(g.pos.x, g.pos.y, g.pos.z)
       ctx.sfx.zoneTick()
@@ -239,6 +245,8 @@ export class Combat {
       // 闪光弹
       ctx.fx.explosion(g.pos.x, g.pos.y + 0.5, g.pos.z)
       ctx.sfx.explosion(g.pos)
+      const fpd = ctx.player.pos.distanceTo(g.pos)
+      if (fpd < 18) ctx.fx.kick('explosion', 0.45 * (1 - fpd / 18))
       for (const c of ctx.chars) {
         if (!c.alive) continue
         const d = c.pos.distanceTo(g.pos)

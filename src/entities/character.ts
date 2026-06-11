@@ -234,6 +234,7 @@ export class Character {
         if (this.isPlayer) {
           ctx.sfx.land()
           ctx.fx.addShake(0.25)
+          ctx.fx.kick('hardGround', Math.min(1.4, impact / 13))
         }
         // 高处坠落伤害（无视护甲）
         if (impact > 14) {
@@ -423,6 +424,7 @@ export class Character {
       }
       ctx.hud.damageFlash(ang, attacker !== null)
       ctx.fx.addShake(0.18)
+      ctx.fx.kick('hit', 0.55 + Math.min(1, dmg / 45) * 0.6)
     }
     if (this.hp <= 0) {
       ctx.kill(this, attacker, weaponName)

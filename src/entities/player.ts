@@ -503,6 +503,7 @@ export class Player extends Character {
       this.yaw += r * DEG * (Math.random() - 0.5) * 0.5
       this.bloom = Math.min(2.2, this.bloom + r * 0.55)
       ctx.fx.addShake(0.05 + r * 0.04)
+      ctx.fx.kick('fire', 0.55 + r * 0.45)
     }
   }
   private meleeLastT = -99
