@@ -98,6 +98,17 @@ export class Effects {
     this.pCol[i * 3] = r; this.pCol[i * 3 + 1] = g; this.pCol[i * 3 + 2] = b
   }
 
+  /** 连射枪口硝烟：几缕灰白颗粒缓慢上飘 */
+  muzzleSmoke(x: number, y: number, z: number) {
+    for (let i = 0; i < 4; i++) {
+      this.particle(
+        x + (Math.random() - 0.5) * 0.12, y + (Math.random() - 0.5) * 0.08, z + (Math.random() - 0.5) * 0.12,
+        (Math.random() - 0.5) * 0.45, 0.5 + Math.random() * 0.55, (Math.random() - 0.5) * 0.45,
+        0.55 + Math.random() * 0.3, 0.64, 0.62, 0.58,
+      )
+    }
+  }
+
   tracer(ax: number, ay: number, az: number, bx: number, by: number, bz: number) {
     const len = Math.hypot(bx - ax, by - ay, bz - az)
     if (len < 1.5) return

@@ -40,6 +40,11 @@ export class Player extends Character {
   nearVehicle: Vehicle | null = null
   surviveStart = 0
   bloom = 0
+  /** 待自动回落的累计后坐上扬（弧度） */
+  private recoilUp = 0
+  /** 连发计数（决定上扬递增与水平摆动） */
+  private burstN = 0
+  private lastFireT = -99
   private switchLockUntil = 0
   private pendingReload: { w: WeaponInst; end: number } | null = null
   /** 投掷动作进行中：到时刻 at 才真正抛出 */
@@ -373,6 +378,12 @@ export class Player extends Character {
     }
 
     this.bloom = Math.max(0, this.bloom - dt * 3.6)
+    // 后坐回落：停火 0.18s 后准星自动下压回中（速度与剩余量成正比，先快后慢）
+    if (ctx.time - this.lastFireT > 0.18 && this.recoilUp > 0.0004) {
+      const rec = Math.min(this.recoilUp, dt * Math.max(0.14, this.recoilUp * 7))
+      this.pitch = clamp(this.pitch - rec, -1.3, 1.35)
+      this.recoilUp -= rec
+    }
     super.update(dt, ctx)
 
     // 脚步声 + 冲刺扬尘
@@ -506,12 +517,27 @@ export class Player extends Character {
     _shotDir.copy(_aim).sub(_muzzle).normalize()
 
     if (ctx.combat.tryFire(ctx, this, w, _muzzle, _shotDir, this.spreadDeg())) {
+      // 连发计数：停火 0.36s 重置
+      if (t - this.lastFireT > 0.36) this.burstN = 0
+      this.lastFireT = t
+      this.burstN++
       const r = w.recoil
-      this.pitch += r * DEG * (0.85 + Math.random() * 0.3)
-      this.yaw += r * DEG * (Math.random() - 0.5) * 0.5
+      // 开镜/蹲伏减后坐；连发垂直渐强、水平摆动渐宽（弹道墙手感）
+      const ctrl = (this.ads ? 0.82 : 1) * (this.crouching ? 0.88 : 1)
+      const climb = Math.min(1.5, 0.92 + this.burstN * 0.05)
+      const sway = 0.3 + Math.min(this.burstN, 9) * 0.06
+      const kickP = r * DEG * climb * ctrl * (0.9 + Math.random() * 0.2)
+      this.pitch += kickP
+      this.yaw += r * DEG * sway * ctrl * (Math.random() - 0.5)
+      // 55% 的上扬在停火后自动回落（保留部分手动压枪空间）
+      this.recoilUp = Math.min(0.2, this.recoilUp + kickP * 0.55)
       this.bloom = Math.min(2.2, this.bloom + r * 0.55)
       ctx.fx.addShake(0.05 + r * 0.04)
       ctx.fx.kick('fire', 0.55 + r * 0.45)
+      // 持续连射的枪口硝烟
+      if (this.burstN >= 6 && this.burstN % 6 === 0) {
+        ctx.fx.muzzleSmoke(_muzzle.x, _muzzle.y, _muzzle.z)
+      }
     }
   }
   private meleeLastT = -99
