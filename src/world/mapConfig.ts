@@ -5,7 +5,9 @@ import { BIOMES, BiomeDef } from './biome'
  * 新增地图（雪地/海岛/城市…）：新建一个 MapConfig + 必要时新建 BiomeDef 即可。
  */
 
-export type PoiKind = 'town' | 'village' | 'depot' | 'military' | 'farm' | 'gas' | 'ruins' | 'camp' | 'huts'
+export type PoiKind =
+  | 'town' | 'village' | 'depot' | 'military' | 'farm' | 'gas' | 'ruins' | 'camp' | 'huts'
+  | 'port' | 'radar' | 'bunker' | 'crashsite' | 'checkpoint' | 'power'
 
 export interface PoiDef {
   kind: PoiKind
@@ -92,6 +94,10 @@ export const MAPS: Record<string, MapConfig> = {
       { kind: 'ruins', name: '旧矿废墟', x: -690, z: -760, r: 65, tier: 2 },
       { kind: 'camp', name: '猎人营地', x: -310, z: -1060, r: 45, tier: 1 },
       { kind: 'camp', name: '高地哨所', x: 1060, z: -940, r: 50, tier: 2 },
+      { kind: 'port', name: '河湾码头', x: 820, z: 468, r: 48, tier: 2 },
+      { kind: 'radar', name: '西岭雷达站', x: -1020, z: -380, r: 42, tier: 2 },
+      { kind: 'power', name: '河谷发电厂', x: -620, z: 760, r: 60, tier: 2 },
+      { kind: 'checkpoint', name: '环路检查站', x: 320, z: -250, r: 26, tier: 1 },
     ],
     roads: [
       [[190, -1180], [190, -880], [130, -560], [60, -180], [60, 440], [-60, 780], [-190, 800], [-340, 950], [-340, 1180]],
@@ -139,6 +145,10 @@ export const MAPS: Record<string, MapConfig> = {
       { kind: 'camp', name: '边境营地', x: -570, z: 980, r: 50, tier: 1 },
       { kind: 'depot', name: '矿区货站', x: 1000, z: 980, r: 70, tier: 2 },
       { kind: 'village', name: '南丘村', x: 130, z: 760, r: 58, tier: 1 },
+      { kind: 'bunker', name: '荒漠地堡', x: -130, z: 380, r: 38, tier: 2 },
+      { kind: 'crashsite', name: '37 号坠机点', x: 630, z: 130, r: 42, tier: 3 },
+      { kind: 'checkpoint', name: '边境检查站', x: -380, z: -520, r: 26, tier: 1 },
+      { kind: 'power', name: '戈壁电站', x: -630, z: 130, r: 60, tier: 2 },
     ],
     roads: [
       [[-1180, -690], [-760, -690], [-380, -520], [-60, -250], [60, 60], [130, 440], [130, 760], [130, 1180]],
@@ -181,6 +191,10 @@ export const MAPS: Record<string, MapConfig> = {
       { kind: 'town', name: '瀑布镇', x: -250, z: -950, r: 85, tier: 2 },
       { kind: 'ruins', name: '废弃矿洞', x: -1010, z: -130, r: 60, tier: 2 },
       { kind: 'village', name: '雾谷村', x: 60, z: 1010, r: 60, tier: 1 },
+      { kind: 'port', name: '雾河码头', x: 480, z: -48, r: 45, tier: 2 },
+      { kind: 'radar', name: '山脊雷达站', x: -570, z: -1010, r: 42, tier: 3 },
+      { kind: 'crashsite', name: '林间坠机', x: -130, z: 570, r: 42, tier: 3 },
+      { kind: 'bunker', name: '丛林地堡', x: 880, z: -130, r: 38, tier: 2 },
     ],
     roads: [
       [[-250, -1180], [-250, -950], [-130, -630], [-60, -310], [-60, -60], [-130, 320], [-250, 630], [-440, 820], [-820, 760]],

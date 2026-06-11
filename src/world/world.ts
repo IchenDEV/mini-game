@@ -4,10 +4,12 @@ import { ColliderWorld } from './colliders'
 import { RNG } from '../utils/rng'
 import { clamp, lerp, smoothstep, dist2D } from '../utils/math'
 import * as TEX from './textures'
-import type { MapConfig, PoiDef } from './mapConfig'
+import { surface } from '../rendering/materials'
+import type { MapConfig } from './mapConfig'
 import type { BiomeDef } from './biome'
+import { buildPoi, house, carWreck, bridge } from './poi/poiTemplates'
 
-type TexKind = 'plaster' | 'brick' | 'metal' | 'roof' | 'wood' | 'concrete' | 'bark' | 'leaves' | 'rooftiles' | 'leafLitter' | 'gravelPatch'
+export type TexKind = 'plaster' | 'brick' | 'metal' | 'roof' | 'wood' | 'concrete' | 'bark' | 'leaves' | 'rooftiles' | 'leafLitter' | 'gravelPatch'
 const TEX_BUILDERS: Record<TexKind, () => THREE.Texture> = {
   plaster: TEX.plaster, brick: TEX.brick, metal: TEX.metalSiding,
   roof: TEX.roofMetal, wood: TEX.woodPlanks, concrete: TEX.concrete,
@@ -18,6 +20,13 @@ const TEX_BUILDERS: Record<TexKind, () => THREE.Texture> = {
 const TEX_METERS: Record<TexKind, number> = {
   plaster: 3, brick: 2.3, metal: 2.6, roof: 3, wood: 1.8, concrete: 3,
   bark: 2, leaves: 1, rooftiles: 2.4, leafLitter: 2, gravelPatch: 2,
+}
+/** 每类表面的 PBR 参数（建筑构件走 Standard 材质） */
+const TEX_PBR: Record<TexKind, [number, number]> = {
+  plaster: [0.94, 0], brick: [0.96, 0], metal: [0.5, 0.4],
+  roof: [0.55, 0.35], wood: [0.8, 0], concrete: [0.95, 0],
+  bark: [0.95, 0], leaves: [0.9, 0], rooftiles: [0.85, 0],
+  leafLitter: [0.95, 0], gravelPatch: [0.95, 0],
 }
 
 // ---------------- 程序化噪声 ----------------
@@ -46,9 +55,9 @@ function fbm(x: number, z: number, oct: number): number {
 export interface POI { name: string; x: number; z: number; r: number; tier: number; kind: string }
 export interface LootPoint { x: number; y: number; z: number; tier: number; fixedItem?: string }
 interface Flatten { x: number; z: number; r: number; h: number }
-interface MapRect { x: number; z: number; w: number; d: number; color: string }
+export interface MapRect { x: number; z: number; w: number; d: number; color: string }
 
-const WALL_H = 2.9
+export const WALL_H = 2.9
 
 export class World {
   cfg: MapConfig
@@ -68,12 +77,12 @@ export class World {
   /** 风场时间（草摆动 shader uniform），由 Game 每帧推进 */
   windT = { value: 0 }
 
-  private rng: RNG
+  rng: RNG
   private flattens: Flatten[] = []
   private roads: [number, number][][] = []
   private roadBBs: { minX: number; minZ: number; maxX: number; maxZ: number; ax: number; az: number; bx: number; bz: number }[] = []
-  private mapRects: MapRect[] = []
-  private matCache = new Map<string, THREE.MeshLambertMaterial>()
+  /** 小地图建筑矩形（POI 模板写入） */
+  mapRects: MapRect[] = []
   private texCache = new Map<string, THREE.Texture>()
   private geoCache = new Map<string, THREE.BoxGeometry>()
   private boxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -240,7 +249,7 @@ export class World {
     return Math.abs(z - this.riverZ(x)) < this.cfg.river.width + pad
   }
 
-  private tex(kind: TexKind): THREE.Texture {
+  tex(kind: TexKind): THREE.Texture {
     let t = this.texCache.get(kind)
     if (!t) {
       t = TEX_BUILDERS[kind]()
@@ -249,19 +258,17 @@ export class World {
     return t
   }
 
-  private mat(color: number, kind: TexKind | null = null): THREE.MeshLambertMaterial {
-    const key = `${color}|${kind ?? ''}`
-    let m = this.matCache.get(key)
-    if (!m) {
-      m = new THREE.MeshLambertMaterial({ color, flatShading: true })
-      if (kind) m.map = this.tex(kind)
-      this.matCache.set(key, m)
-    }
-    return m
+  /** 建筑/道具材质：按贴图类别套用 PBR 粗糙度与金属度（全局缓存） */
+  mat(color: number, kind: TexKind | null = null): THREE.MeshStandardMaterial {
+    const [rough, met] = kind ? TEX_PBR[kind] : [0.85, 0]
+    return surface({
+      color, map: kind ? this.tex(kind) : undefined,
+      roughness: rough, metalness: met, flatShading: true,
+    })
   }
 
   /** 按世界尺寸缩放 UV 的盒子几何（带缓存），使贴图密度恒定 */
-  private geoSized(w: number, h: number, d: number, meters: number): THREE.BoxGeometry {
+  geoSized(w: number, h: number, d: number, meters: number): THREE.BoxGeometry {
     const key = `${w.toFixed(2)}|${h.toFixed(2)}|${d.toFixed(2)}|${meters}`
     let geo = this.geoCache.get(key)
     if (!geo) {
@@ -283,7 +290,7 @@ export class World {
   }
 
   /** 通用盒子：y 为底部高度；tk 指定贴图类别 */
-  private box(w: number, h: number, d: number, x: number, y: number, z: number, color: number, collide = true, shadow = true, tk: TexKind | null = null): THREE.Mesh {
+  box(w: number, h: number, d: number, x: number, y: number, z: number, color: number, collide = true, shadow = true, tk: TexKind | null = null): THREE.Mesh {
     let mesh: THREE.Mesh
     if (tk) {
       mesh = new THREE.Mesh(this.geoSized(w, h, d, TEX_METERS[tk]), this.mat(color, tk))
@@ -302,7 +309,7 @@ export class World {
   // ---------------- 建筑构件 ----------------
 
   /** 局部坐标盒子构建器（支持 0/90/180/270 旋转） */
-  private localBuilder(cx: number, cz: number, rot: number) {
+  localBuilder(cx: number, cz: number, rot: number) {
     return (lw: number, lh: number, ld: number, lx: number, ly: number, lz: number, color: number, collide = true, tk: TexKind | null = null) => {
       let w = lw, d = ld, x = lx, z = lz
       if (rot === 1) { w = ld; d = lw; x = lz; z = -lx }
@@ -312,14 +319,14 @@ export class World {
     }
   }
 
-  private rotPt(lx: number, lz: number, rot: number): [number, number] {
+  rotPt(lx: number, lz: number, rot: number): [number, number] {
     if (rot === 1) return [lz, -lx]
     if (rot === 2) return [-lx, -lz]
     if (rot === 3) return [-lz, lx]
     return [lx, lz]
   }
 
-  private pickWallTex(): TexKind {
+  pickWallTex(): TexKind {
     const b = this.biome.wallTexBias
     const r = this.rng.next()
     if (r < b.brick) return 'brick'
@@ -328,7 +335,7 @@ export class World {
   }
 
   /** 人字坡屋顶：双坡瓦面 + 屋脊 + 三角山墙（纯视觉，碰撞由檐口平板承担） */
-  private gableRoof(cx: number, cz: number, rot: number, w: number, d: number, y: number, roofC: number, wallC: number) {
+  gableRoof(cx: number, cz: number, rot: number, w: number, d: number, y: number, roofC: number, wallC: number) {
     const grp = new THREE.Group()
     const rise = Math.min(1.9, d * 0.3)
     const half = d / 2 + 0.4
@@ -353,7 +360,7 @@ export class World {
     tri.lineTo(0, rise)
     tri.closePath()
     const triGeo = new THREE.ShapeGeometry(tri)
-    const gableMat = new THREE.MeshLambertMaterial({ color: wallC, map: this.tex('plaster'), side: THREE.DoubleSide })
+    const gableMat = surface({ color: wallC, map: this.tex('plaster'), roughness: 0.94, side: THREE.DoubleSide })
     for (const s of [-1, 1]) {
       const m = new THREE.Mesh(triGeo, gableMat)
       m.rotation.y = s * Math.PI / 2
@@ -366,416 +373,6 @@ export class World {
     this.group.add(grp)
   }
 
-  private house(cx: number, cz: number, rot: number, tier: number, w = 8, d = 6) {
-    const g = this.groundHeight(cx, cz)
-    const B = this.localBuilder(cx, cz, rot)
-    const wallC = this.rng.pick(this.biome.houseWalls)
-    const roofC = this.rng.pick(this.biome.houseRoofs)
-    const wallT = this.pickWallTex()
-    const t = 0.28
-    const doorW = 1.5, doorH = 2.2
-    const segW = (w - doorW) / 2
-    B(segW, WALL_H, t, -(doorW + segW) / 2, g, d / 2 - t / 2, wallC, true, wallT)
-    B(segW, WALL_H, t, (doorW + segW) / 2, g, d / 2 - t / 2, wallC, true, wallT)
-    B(doorW, WALL_H - doorH, t, 0, g + doorH, d / 2 - t / 2, wallC, true, wallT)
-    B(w, WALL_H, t, 0, g, -d / 2 + t / 2, wallC, true, wallT)
-    B(t, WALL_H, d - t * 2, -w / 2 + t / 2, g, 0, wallC, true, wallT)
-    B(t, WALL_H, d - t * 2, w / 2 - t / 2, g, 0, wallC, true, wallT)
-    B(w + 0.5, 0.2, d + 0.5, 0, g + WALL_H, 0, new THREE.Color(roofC).multiplyScalar(0.75).getHex(), true, 'wood')
-    this.gableRoof(cx, cz, rot, w, d, g + WALL_H + 0.2, roofC, wallC)
-    B(w - 0.1, 0.1, d - 0.1, 0, g + 0.02, 0, 0x8d8579, false, 'concrete')
-    B(w * 0.6, 0.09, 1.5, 0, g + 0.01, d / 2 + 0.8, 0x97907f, false, 'wood')
-    // 窗：白框 + 玻璃 + 竖梃 + 凸出窗台
-    const frameC = 0xe2dccb
-    // 北墙窗（朝 -z）
-    B(1.5, 1.18, 0.07, -w / 4, g + 1.11, -d / 2 + 0.045, frameC, false)
-    B(1.3, 1.0, 0.1, -w / 4, g + 1.2, -d / 2 + 0.04, 0x222a31, false)
-    B(0.06, 1.0, 0.12, -w / 4, g + 1.2, -d / 2 + 0.035, frameC, false)
-    B(1.62, 0.1, 0.26, -w / 4, g + 1.0, -d / 2 + 0.1, frameC, false)
-    // 东墙窗（朝 +x）
-    B(0.07, 1.18, 1.4, w / 2 - 0.045, g + 1.11, 0, frameC, false)
-    B(0.1, 1.0, 1.2, w / 2 - 0.04, g + 1.2, 0, 0x222a31, false)
-    B(0.12, 1.0, 0.06, w / 2 - 0.035, g + 1.2, 0, frameC, false)
-    B(0.26, 0.1, 1.52, w / 2 - 0.1, g + 1.0, 0, frameC, false)
-    // 烟囱：砖柱 + 顶帽 + 囱口
-    if (this.rng.chance(0.65)) {
-      const rise = Math.min(1.9, d * 0.3)
-      const chH = rise + 1.25
-      B(0.62, chH, 0.62, w * 0.28, g + WALL_H + 0.2, 0.45, 0x96705a, true, 'brick')
-      B(0.8, 0.14, 0.8, w * 0.28, g + WALL_H + 0.2 + chH, 0.45, 0x756a60, false)
-      B(0.4, 0.16, 0.4, w * 0.28, g + WALL_H + 0.34 + chH, 0.45, 0x26262a, false)
-    }
-    if (this.rng.chance(0.45)) B(0.9, 0.9, 0.9, -w / 4, g + 0.1, -d / 4, 0x8a703f, true, 'wood')
-    const pts: [number, number][] = [[-w / 4, 0], [w / 4, -d / 5], [0, d / 5], [0, d / 2 + 1.2]]
-    for (const [lx, lz] of pts) {
-      const [x, z] = this.rotPt(lx, lz, rot)
-      this.lootPoints.push({ x: cx + x, y: g + 0.12, z: cz + z, tier })
-    }
-    this.mapRects.push({ x: cx, z: cz, w: rot % 2 === 0 ? w : d, d: rot % 2 === 0 ? d : w, color: '#4d5560' })
-  }
-
-  private warehouse(cx: number, cz: number, rot: number, tier: number) {
-    const g = this.groundHeight(cx, cz)
-    const B = this.localBuilder(cx, cz, rot)
-    const w = 20, d = 12, h = 5, t = 0.3
-    const wallC = this.biome.id === 'desert' ? 0x9a7d52 : this.biome.id === 'jungle' ? 0x5d7055 : 0x4a6d96
-    const roofC = 0x39444e
-    const doorW = 5, doorH = 4
-    for (const sx of [-1, 1]) {
-      const segD = (d - doorW) / 2
-      B(t, h, segD, sx * (w / 2 - t / 2), g, -(doorW + segD) / 2, wallC, true, 'metal')
-      B(t, h, segD, sx * (w / 2 - t / 2), g, (doorW + segD) / 2, wallC, true, 'metal')
-      B(t, h - doorH, doorW, sx * (w / 2 - t / 2), g + doorH, 0, wallC, true, 'metal')
-    }
-    B(w - t * 2, h, t, 0, g, d / 2 - t / 2, wallC, true, 'metal')
-    B(w - t * 2, h, t, 0, g, -d / 2 + t / 2, wallC, true, 'metal')
-    B(w + 0.8, 0.25, d + 0.8, 0, g + h, 0, roofC, true, 'roof')
-    B(w - 0.2, 0.08, d - 0.2, 0, g + 0.02, 0, 0x868c90, false, 'concrete')
-    const crates: [number, number, number][] = [[-6, -3, 1.3], [-5.8, 3.2, 1.3], [-2, -3.5, 1.2], [2.5, 3, 1.4], [6, -2.5, 1.3], [6.5, 2.8, 1.2]]
-    for (const [lx, lz, s] of crates) {
-      B(s, s, s, lx, g, lz, this.rng.pick([0x8a703f, 0x7a6a50, 0x6f7a55]), true, 'wood')
-      if (this.rng.chance(0.4)) B(s * 0.9, s * 0.9, s * 0.9, lx, g + s, lz, 0x8a703f, true, 'wood')
-    }
-    const pts: [number, number][] = [[-7, 0], [-3.5, -3.5], [0, 3.5], [0, 0], [3.5, -3.5], [7, 0], [4, 3.5]]
-    for (const [lx, lz] of pts) {
-      const [x, z] = this.rotPt(lx, lz, rot)
-      this.lootPoints.push({ x: cx + x, y: g + 0.12, z: cz + z, tier })
-    }
-    this.mapRects.push({ x: cx, z: cz, w: rot % 2 === 0 ? w : d, d: rot % 2 === 0 ? d : w, color: '#46627f' })
-  }
-
-  private container(cx: number, cz: number, rot: number, stack = false) {
-    const g = this.groundHeight(cx, cz)
-    const B = this.localBuilder(cx, cz, rot)
-    const c1 = this.rng.pick([0x3f6fa8, 0x2f8a8a, 0x9a5b3c, 0x5d7283, 0x55795e])
-    B(6.2, 2.5, 2.5, 0, g, 0, c1, true, 'metal')
-    if (stack) {
-      const c2 = this.rng.pick([0x3f6fa8, 0x2f8a8a, 0x9a5b3c, 0x5d7283])
-      B(6.2, 2.5, 2.5, 0.4, g + 2.5, 0, c2, true, 'metal')
-    }
-    this.mapRects.push({ x: cx, z: cz, w: rot % 2 === 0 ? 6.2 : 2.5, d: rot % 2 === 0 ? 2.5 : 6.2, color: '#3f618c' })
-  }
-
-  private watchtower(cx: number, cz: number, tier: number) {
-    const g = this.groundHeight(cx, cz)
-    const legC = 0x5d4a36, platC = 0x6e5d4a
-    for (const [sx, sz] of [[-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2], [1.2, 1.2]]) {
-      this.box(0.3, 3.6, 0.3, cx + sx, g, cz + sz, legC, true, true, 'wood')
-    }
-    this.box(3.4, 0.25, 3.4, cx, g + 3.6, cz, platC, true, true, 'wood')
-    this.box(3.4, 0.8, 0.12, cx, g + 3.85, cz - 1.65, legC, true, true, 'wood')
-    this.box(3.4, 0.8, 0.12, cx, g + 3.85, cz + 1.65, legC, true, true, 'wood')
-    this.box(0.12, 0.8, 3.4, cx - 1.65, g + 3.85, cz, legC, true, true, 'wood')
-    const steps = 8
-    for (let i = 0; i < steps; i++) {
-      const hh = (3.6 / steps) * (i + 1)
-      this.box(1.3, hh, 0.62, cx + 2.4, g, cz - 1.55 + i * 0.45, 0x7a6a50, true, true, 'wood')
-    }
-    this.lootPoints.push({ x: cx, y: g + 3.97, z: cz, tier })
-    this.mapRects.push({ x: cx, z: cz, w: 3.4, d: 3.4, color: '#5d4a36' })
-  }
-
-  private barn(cx: number, cz: number, rot: number, tier: number) {
-    const g = this.groundHeight(cx, cz)
-    const B = this.localBuilder(cx, cz, rot)
-    const w = 14, d = 10, h = 5.4, t = 0.3
-    const wallC = 0x7a5a40, roofC = 0x8a4a3a
-    const doorW = 4, doorH = 4.2
-    for (const sx of [-1, 1]) {
-      const segD = (d - doorW) / 2
-      B(t, h, segD, sx * (w / 2 - t / 2), g, -(doorW + segD) / 2, wallC, true, 'wood')
-      B(t, h, segD, sx * (w / 2 - t / 2), g, (doorW + segD) / 2, wallC, true, 'wood')
-      B(t, h - doorH, doorW, sx * (w / 2 - t / 2), g + doorH, 0, wallC, true, 'wood')
-    }
-    B(w - t * 2, h, t, 0, g, d / 2 - t / 2, wallC, true, 'wood')
-    B(w - t * 2, h, t, 0, g, -d / 2 + t / 2, wallC, true, 'wood')
-    B(w + 0.8, 0.25, d + 0.8, 0, g + h, 0, roofC, true, 'roof')
-    B(1.6, 1.2, 1.6, -3, g, -2, 0xb89a55, true, 'wood')
-    B(1.6, 1.2, 1.6, -3, g, 2.2, 0xb89a55, true, 'wood')
-    B(1.6, 1.2, 1.6, 3.5, g, 0, 0xb89a55, true, 'wood')
-    const pts: [number, number][] = [[-4.5, 0], [-1, -2.5], [1.5, 2.5], [4.5, -1.5], [0, 0]]
-    for (const [lx, lz] of pts) {
-      const [x, z] = this.rotPt(lx, lz, rot)
-      this.lootPoints.push({ x: cx + x, y: g + 0.12, z: cz + z, tier })
-    }
-    this.mapRects.push({ x: cx, z: cz, w: rot % 2 === 0 ? w : d, d: rot % 2 === 0 ? d : w, color: '#6e4a38' })
-  }
-
-  private silo(cx: number, cz: number) {
-    const g = this.groundHeight(cx, cz)
-    const geo = new THREE.CylinderGeometry(2.4, 2.4, 8, 10)
-    const siloTex = this.tex('metal').clone()
-    siloTex.repeat.set(6, 3)
-    siloTex.needsUpdate = true
-    const siloMat = new THREE.MeshLambertMaterial({ color: 0x9aa0a6, flatShading: true, map: siloTex })
-    const mesh = new THREE.Mesh(geo, siloMat)
-    mesh.position.set(cx, g + 4, cz)
-    mesh.castShadow = true
-    this.group.add(mesh)
-    const cap = new THREE.Mesh(new THREE.ConeGeometry(2.5, 1.6, 10), this.mat(0x7a8086))
-    cap.position.set(cx, g + 8.8, cz)
-    cap.castShadow = true
-    this.group.add(cap)
-    this.col.addCyl(cx, cz, 2.4, g, g + 8)
-    this.mapRects.push({ x: cx, z: cz, w: 4.8, d: 4.8, color: '#7d8388' })
-  }
-
-  private carWreck(cx: number, cz: number, alongX: boolean) {
-    const g = this.groundHeight(cx, cz)
-    const bodyC = this.rng.pick([0x6d4a3a, 0x5d6066, 0x47525a, 0x705a30])
-    const w = alongX ? 4.3 : 1.8, d = alongX ? 1.8 : 4.3
-    this.box(w, 0.9, d, cx, g + 0.35, cz, bodyC)
-    const cw = alongX ? 2.1 : 1.6, cd = alongX ? 1.6 : 2.1
-    this.box(cw, 0.65, cd, cx, g + 1.25, cz, bodyC, false)
-    const wg = new THREE.CylinderGeometry(0.36, 0.36, 0.3, 8)
-    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-      const wheel = new THREE.Mesh(wg, this.mat(0x1d2125))
-      wheel.rotation.z = alongX ? 0 : Math.PI / 2
-      wheel.rotation.x = alongX ? Math.PI / 2 : 0
-      const ox = alongX ? sx * 1.4 : sx * 0.85
-      const oz = alongX ? sz * 0.85 : sz * 1.4
-      wheel.position.set(cx + ox, g + 0.36, cz + oz)
-      this.group.add(wheel)
-    }
-    this.col.addBox(cx - w / 2, g, cz - d / 2, cx + w / 2, g + 1.6, cz + d / 2)
-    if (this.rng.chance(0.55)) this.lootPoints.push({ x: cx + (alongX ? 0 : 2.2), y: g + 0.12, z: cz + (alongX ? 2.2 : 0), tier: 1 })
-  }
-
-  /** 加油站：顶棚 + 油泵 + 小卖部 */
-  private gasStation(cx: number, cz: number, rot: number, tier: number) {
-    const g = this.groundHeight(cx, cz)
-    const B = this.localBuilder(cx, cz, rot)
-    // 顶棚
-    for (const [lx, lz] of [[-5, -3], [5, -3], [-5, 3], [5, 3]]) {
-      B(0.45, 4.6, 0.45, lx, g, lz, 0x8d9296, true, 'concrete')
-    }
-    B(14, 0.4, 9, 0, g + 4.6, 0, 0xb8483a, true, 'roof')
-    B(13.9, 0.06, 8.9, 0, g + 0.02, 0, 0x8c9094, false, 'concrete')
-    // 油泵
-    for (const lx of [-2.5, 2.5]) {
-      B(0.9, 1.5, 0.6, lx, g, 0, 0xb8483a, true, 'metal')
-      B(1.1, 0.12, 0.8, lx, g + 1.5, 0, 0x8d9296, false)
-    }
-    // 小卖部
-    const shopX = 12
-    B(7, WALL_H, 5, shopX, g, 0, this.rng.pick(this.biome.houseWalls), true, this.pickWallTex())
-    B(7.6, 0.22, 5.6, shopX, g + WALL_H, 0, 0x5d7283, true, 'roof')
-    const pts: [number, number][] = [[-2.5, 1.8], [2.5, -1.8], [0, 0], [shopX, 3.5]]
-    for (const [lx, lz] of pts) {
-      const [x, z] = this.rotPt(lx, lz, rot)
-      this.lootPoints.push({ x: cx + x, y: g + 0.12, z: cz + z, tier })
-    }
-    // 加油站必出汽油桶
-    for (const [lx, lz] of [[-4.2, -1.2], [4.2, 1.2]] as [number, number][]) {
-      const [x, z] = this.rotPt(lx, lz, rot)
-      this.lootPoints.push({ x: cx + x, y: g + 0.12, z: cz + z, tier, fixedItem: 'fuelcan' })
-    }
-    this.mapRects.push({ x: cx, z: cz, w: 14, d: 9, color: '#8c5046' })
-  }
-
-  /** 废墟：断墙阵列 */
-  private ruins(cx: number, cz: number, r: number, tier: number) {
-    const wallC = this.biome.id === 'desert' ? 0xc2ae8a : 0x9a8d7a
-    const n = 10 + this.rng.int(0, 5)
-    for (let i = 0; i < n; i++) {
-      const a = this.rng.range(0, Math.PI * 2)
-      const d = this.rng.range(r * 0.12, r * 0.8)
-      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d
-      const g = this.groundHeight(x, z)
-      const len = this.rng.range(3, 7.5)
-      const h = this.rng.range(1.1, 2.8)
-      const along = this.rng.chance(0.5)
-      this.box(along ? len : 0.45, h, along ? 0.45 : len, x, g, z, wallC, true, true, 'brick')
-      // 偶发 L 形
-      if (this.rng.chance(0.4)) {
-        const l2 = this.rng.range(2, 4)
-        this.box(along ? 0.45 : l2, h * 0.8, along ? l2 : 0.45, x + (along ? len / 2 : l2 / 2 - 0.2), g, z + (along ? l2 / 2 : len / 2), wallC, true, true, 'brick')
-      }
-    }
-    // 中央祭坛/基座（高级物资）
-    const g0 = this.groundHeight(cx, cz)
-    this.box(4, 0.7, 4, cx, g0, cz, 0x8d8478, true, true, 'concrete')
-    const lootN = 4 + tier * 2
-    for (let i = 0; i < lootN; i++) {
-      const a = this.rng.range(0, Math.PI * 2)
-      const d = this.rng.range(0, r * 0.7)
-      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d
-      this.lootPoints.push({ x, y: this.groundHeight(x, z) + 0.12, z, tier })
-    }
-    this.lootPoints.push({ x: cx, y: g0 + 0.82, z: cz, tier: Math.min(3, tier + 1) })
-    this.mapRects.push({ x: cx, z: cz, w: r * 1.2, d: r * 1.2, color: '#8a8276' })
-  }
-
-  /** 营地：帐篷 + 篝火 + 木箱 */
-  private camp(cx: number, cz: number, r: number, tier: number) {
-    const tentGeo = new THREE.ConeGeometry(2.1, 2.2, 4)
-    const tentC = [0x6e7a55, 0x7a6e50, 0x5d6e5d]
-    const n = 4 + this.rng.int(0, 2)
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + this.rng.range(-0.3, 0.3)
-      const d = this.rng.range(r * 0.3, r * 0.62)
-      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d
-      const g = this.groundHeight(x, z)
-      const tent = new THREE.Mesh(tentGeo, this.mat(this.rng.pick(tentC)))
-      tent.position.set(x, g + 1.1, z)
-      tent.rotation.y = this.rng.range(0, Math.PI)
-      tent.castShadow = true
-      this.group.add(tent)
-      this.col.addCyl(x, z, 1.7, g, g + 2.0)
-      this.lootPoints.push({ x: x + Math.cos(a) * 2.4, y: this.groundHeight(x + Math.cos(a) * 2.4, z + Math.sin(a) * 2.4) + 0.12, z: z + Math.sin(a) * 2.4, tier })
-    }
-    // 篝火
-    const g0 = this.groundHeight(cx, cz)
-    const fire = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 0.25, 8), this.mat(0x2d2a26))
-    fire.position.set(cx, g0 + 0.12, cz)
-    this.group.add(fire)
-    // 木箱
-    for (let i = 0; i < 3; i++) {
-      const a = this.rng.range(0, Math.PI * 2), d = this.rng.range(2, r * 0.5)
-      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d
-      this.box(1.2, 1.2, 1.2, x, this.groundHeight(x, z), z, 0x8a703f, true, true, 'wood')
-    }
-    if (tier >= 2) this.watchtower(cx + r * 0.7, cz, tier)
-    this.lootPoints.push({ x: cx + 1.8, y: g0 + 0.12, z: cz, tier })
-    this.mapRects.push({ x: cx, z: cz, w: r, d: r, color: '#5d6e4d' })
-  }
-
-  /** 高脚竹屋群（雨林） */
-  private huts(cx: number, cz: number, r: number, tier: number) {
-    const n = 4 + this.rng.int(0, 2)
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + this.rng.range(-0.4, 0.4)
-      const d = this.rng.range(r * 0.25, r * 0.7)
-      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d
-      const g = this.groundHeight(x, z)
-      const rot = this.rng.int(0, 3)
-      const B = this.localBuilder(x, z, rot)
-      const deckH = 1.6
-      // 立柱
-      for (const [lx, lz] of [[-2.2, -1.6], [2.2, -1.6], [-2.2, 1.6], [2.2, 1.6]]) {
-        B(0.28, deckH, 0.28, lx, g, lz, 0x6e5a40, true, 'wood')
-      }
-      // 平台
-      B(5.4, 0.25, 4.2, 0, g + deckH, 0, 0x8a7350, true, 'wood')
-      // 三面墙（正面开放）
-      B(5.0, 2.1, 0.22, 0, g + deckH + 0.25, -1.85, 0x9a8258, true, 'wood')
-      B(0.22, 2.1, 3.6, -2.45, g + deckH + 0.25, 0, 0x9a8258, true, 'wood')
-      B(0.22, 2.1, 3.6, 2.45, g + deckH + 0.25, 0, 0x9a8258, true, 'wood')
-      // 茅草顶
-      B(6.0, 0.3, 4.8, 0, g + deckH + 2.45, 0, 0x7d7044, true, 'wood')
-      // 上台阶
-      const steps = 4
-      for (let s = 0; s < steps; s++) {
-        const hh = (deckH / steps) * (s + 1)
-        B(1.1, hh, 0.5, 0, g, 2.4 - s * 0.5, 0x7a6448, true, 'wood')
-      }
-      const [lx2, lz2] = this.rotPt(0, -0.5, rot)
-      this.lootPoints.push({ x: x + lx2, y: g + deckH + 0.4, z: z + lz2, tier })
-      this.mapRects.push({ x, z, w: 5.4, d: 4.2, color: '#7d6a48' })
-    }
-    // 中心晒场 + 货箱
-    const g0 = this.groundHeight(cx, cz)
-    this.box(1.3, 1.0, 1.3, cx + 1.5, g0, cz, 0x8a703f, true, true, 'wood')
-    this.lootPoints.push({ x: cx, y: g0 + 0.12, z: cz, tier })
-  }
-
-  /** 镇子：房屋网格 + 仓库 */
-  private town(cx: number, cz: number, r: number, tier: number) {
-    const houseDefs: [number, number, number, number, number][] = [
-      [-34, -22, 0, 8, 6], [-16, -24, 0, 9, 6], [4, -22, 2, 8, 6], [22, -20, 0, 7, 5.5],
-      [-34, 2, 2, 8, 6], [-14, 4, 2, 10, 7], [6, 2, 2, 8, 6], [24, 4, 0, 7, 6],
-      [-26, 24, 0, 9, 6.5], [-4, 26, 2, 8, 6], [16, 24, 1, 8, 6], [36, 12, 1, 7, 5.5],
-    ]
-    const k = r / 95
-    for (const [ox, oz, rot, w, d] of houseDefs) this.house(cx + ox * k, cz + oz * k, rot, tier, w, d)
-    this.warehouse(cx + 2 * k, cz + 44 * k, 0, tier)
-    this.carWreck(cx - 8, cz - 44 * k, true)
-    this.carWreck(cx + 30, cz - 36 * k, false)
-  }
-
-  private village(cx: number, cz: number, r: number, tier: number) {
-    const n = 6 + this.rng.int(0, 2)
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + this.rng.range(-0.25, 0.25)
-      const d = this.rng.range(r * 0.25, r * 0.7)
-      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d
-      this.house(x, z, this.rng.int(0, 3), tier, this.rng.range(7, 9.5), this.rng.range(5.5, 7))
-    }
-    if (this.rng.chance(0.6)) this.carWreck(cx, cz, this.rng.chance(0.5))
-  }
-
-  private depot(cx: number, cz: number, tier: number) {
-    this.warehouse(cx - 20, cz - 5, 0, tier)
-    this.warehouse(cx + 15, cz + 15, 1, tier)
-    this.warehouse(cx + 18, cz - 22, 0, tier)
-    this.container(cx - 2, cz + 5, 1, false)
-    this.container(cx + 2, cz - 7, 0, true)
-    this.container(cx - 14, cz + 18, 0, false)
-    this.carWreck(cx + 30, cz + 5, true)
-  }
-
-  private military(cx: number, cz: number, r: number, tier: number) {
-    this.warehouse(cx - 25, cz - 20, 0, tier)
-    this.warehouse(cx + 25, cz + 18, 1, tier)
-    const contDefs: [number, number, number, boolean][] = [
-      [-20, 8, 0, false], [-12, 8, 0, true], [-4, 8, 0, false], [8, 14, 1, true],
-      [16, 14, 1, false], [-18, -10, 0, false], [-8, -14, 0, true], [4, -16, 0, false],
-    ]
-    for (const [ox, oz, rot, st] of contDefs) this.container(cx + ox, cz + oz, rot, st)
-    this.watchtower(cx + 30, cz - 25, tier)
-    this.watchtower(cx - 32, cz + 26, tier)
-    // 围墙（四角断开留口）
-    const wallC = 0x7d8084
-    for (const s of [-1, 1]) {
-      this.box(r * 1.1, 2.2, 0.4, cx, this.groundHeight(cx, cz + s * r * 0.62), cz + s * r * 0.62, wallC, true, true, 'concrete')
-      this.box(0.4, 2.2, r * 0.7, cx + s * r * 0.66, this.groundHeight(cx + s * r * 0.66, cz), cz, wallC, true, true, 'concrete')
-    }
-    for (let i = 0; i < 8; i++) {
-      const a = this.rng.range(0, Math.PI * 2), d = this.rng.range(4, r * 0.5)
-      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d
-      this.lootPoints.push({ x, y: this.groundHeight(x, z) + 0.12, z, tier })
-    }
-    this.carWreck(cx - 42, cz + 2, true)
-  }
-
-  private farm(cx: number, cz: number, tier: number) {
-    this.barn(cx, cz - 5, 1, tier)
-    this.house(cx - 20, cz + 18, 0, tier)
-    this.house(cx + 22, cz + 14, 1, tier, 7, 5.5)
-    this.silo(cx + 14, cz - 16)
-    this.box(1.7, 1.1, 1.7, cx - 12, this.groundHeight(cx - 12, cz - 10), cz - 10, 0xb89a55, true, true, 'wood')
-    this.box(1.7, 1.1, 1.7, cx - 8, this.groundHeight(cx - 8, cz + 2), cz + 2, 0xb89a55, true, true, 'wood')
-  }
-
-  private bridge(bx: number) {
-    const r = this.cfg.river
-    if (!r) return
-    const bz = this.riverZ(bx)
-    const len = r.width * 2 + 14
-    const deckC = 0x8d9296, railC = 0x5d6a74
-    this.box(7.2, 0.35, len, bx, 3.0, bz, deckC, true, true, 'concrete')
-    this.box(0.25, 0.95, len, bx - 3.45, 3.35, bz, railC, true, true, 'concrete')
-    this.box(0.25, 0.95, len, bx + 3.45, 3.35, bz, railC, true, true, 'concrete')
-    for (const sz of [-len * 0.25, len * 0.25]) {
-      this.box(1.2, 4.8, 1.2, bx - 2.5, -1.6, bz + sz, 0x6e7479, true, true, 'concrete')
-      this.box(1.2, 4.8, 1.2, bx + 2.5, -1.6, bz + sz, 0x6e7479, true, true, 'concrete')
-    }
-    this.mapRects.push({ x: bx, z: bz, w: 7.2, d: len, color: '#888d92' })
-  }
-
-  private buildPoi(p: PoiDef) {
-    switch (p.kind) {
-      case 'town': this.town(p.x, p.z, p.r, p.tier); break
-      case 'village': this.village(p.x, p.z, p.r, p.tier); break
-      case 'depot': this.depot(p.x, p.z, p.tier); break
-      case 'military': this.military(p.x, p.z, p.r, p.tier); break
-      case 'farm': this.farm(p.x, p.z, p.tier); break
-      case 'gas': this.gasStation(p.x, p.z, this.rng.int(0, 3), p.tier); break
-      case 'ruins': this.ruins(p.x, p.z, p.r, p.tier); break
-      case 'camp': this.camp(p.x, p.z, p.r, p.tier); break
-      case 'huts': this.huts(p.x, p.z, p.r, p.tier); break
-    }
-  }
 
   // ---------------- 总构建 ----------------
 
@@ -806,10 +403,10 @@ export class World {
     this.buildVegetation()
 
     // 资源点
-    for (const p of cfg.pois) this.buildPoi(p)
+    for (const p of cfg.pois) buildPoi(this, p)
 
     // 独栋房
-    for (const lh of loneHouses) this.house(lh.x, lh.z, lh.rot, 1)
+    for (const lh of loneHouses) house(this, lh.x, lh.z, lh.rot, 1)
 
     // 公路车辆残骸（沿道路撒）
     let placedWrecks = 0, wtries = 0
@@ -821,12 +418,12 @@ export class World {
       const z = lerp(road[i][1], road[i + 1][1], t) + this.rng.range(-5, 5)
       if (this.nearRiver(x, z, 6)) continue
       if (Math.abs(x) > lim || Math.abs(z) > lim) continue
-      this.carWreck(x, z, this.rng.chance(0.5))
+      carWreck(this, x, z, this.rng.chance(0.5))
       placedWrecks++
     }
 
     // 桥
-    for (const bx of cfg.bridges) this.bridge(bx)
+    for (const bx of cfg.bridges) bridge(this, bx)
 
     // 大型岩石掩体（开阔地带）
     const bigRocks = Math.round(this.half / 12)

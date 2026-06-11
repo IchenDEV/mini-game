@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { clamp, damp } from '../utils/math'
+import { surface, glass, cloth, metal } from '../rendering/materials'
 import type { Ctx } from '../core/ctx'
 import type { Character } from '../entities/character'
 
@@ -36,9 +37,10 @@ export class Vehicle {
   }
 
   private build() {
-    const bodyC = new THREE.MeshLambertMaterial({ color: 0x5d6e46, flatShading: true })
-    const darkC = new THREE.MeshLambertMaterial({ color: 0x3a4034, flatShading: true })
-    const seatC = new THREE.MeshLambertMaterial({ color: 0x2c2f2a, flatShading: true })
+    // 车身漆面金属、防滚架/轮胎偏哑光、座椅布面
+    const bodyC = surface({ color: 0x5d6e46, roughness: 0.42, metalness: 0.45, flatShading: true })
+    const darkC = surface({ color: 0x3a4034, roughness: 0.72, metalness: 0.2, flatShading: true })
+    const seatC = cloth(0x2c2f2a)
     const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
       const m = new THREE.Mesh(geo, mat)
       m.position.set(x, y, z)
@@ -55,8 +57,8 @@ export class Vehicle {
     wheel.position.set(-0.45, 1.32, 0.42)
     wheel.rotation.x = -1.1
     this.mesh.add(wheel)
-    // 风挡框
-    add(new THREE.BoxGeometry(1.8, 0.7, 0.08), new THREE.MeshLambertMaterial({ color: 0x9fb4bd, transparent: true, opacity: 0.45 }), 0, 1.55, 0.7)
+    // 风挡玻璃
+    add(new THREE.BoxGeometry(1.8, 0.7, 0.08), glass(0x9fc4d4), 0, 1.55, 0.7)
     // 座椅
     add(new THREE.BoxGeometry(0.7, 0.5, 0.6), seatC, -0.45, 1.05, -0.1)
     add(new THREE.BoxGeometry(0.7, 0.5, 0.6), seatC, 0.45, 1.05, -0.1)
@@ -68,7 +70,7 @@ export class Vehicle {
     add(new THREE.BoxGeometry(0.1, 0.9, 0.1), darkC, 0.85, 1.3, -0.9)
     add(new THREE.BoxGeometry(1.85, 0.1, 0.1), darkC, 0, 1.78, -0.9)
     // 后部油桶（细节）
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.55, 8), new THREE.MeshLambertMaterial({ color: 0x7a3a30, flatShading: true }))
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.55, 8), metal(0x7a3a30))
     drum.position.set(0.55, 1.05, -1.55)
     drum.castShadow = true
     this.mesh.add(drum)
