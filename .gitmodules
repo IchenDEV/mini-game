@@ -1,0 +1,3 @@
+[submodule "vendor/pokeyellow"]
+	path = vendor/pokeyellow
+	url = https://github.com/pret/pokeyellow
