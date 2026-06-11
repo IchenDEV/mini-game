@@ -16,7 +16,7 @@ import { Player } from '../entities/player'
 import { Bot, botName } from '../entities/bot'
 import { Character } from '../entities/character'
 import { PlaneRide } from '../world/plane'
-import { Vehicle } from '../world/vehicle'
+import { Vehicle, type VehicleKind } from '../world/vehicle'
 import { MAPS, MapConfig } from '../world/mapConfig'
 import { WorldEvents } from '../world/events/worldEvents'
 import { pickWeather, WeatherFX } from '../world/weather'
@@ -148,10 +148,15 @@ export class Game {
     }
     this.ctx.aliveCount = this.ctx.chars.length
 
-    // 载具
-    for (const vs of world.vehicleSpawns) {
+    // 载具：按地图分布车型（沙漠多皮卡、雨林多吉普、草原偏均衡）
+    const vehiclePool: VehicleKind[] =
+      cfg.biome.id === 'desert' ? ['pickup', 'pickup', 'buggy', 'van']
+      : cfg.biome.id === 'jungle' ? ['buggy', 'buggy', 'pickup']
+      : ['buggy', 'pickup', 'van', 'buggy']
+    for (let i = 0; i < world.vehicleSpawns.length; i++) {
+      const vs = world.vehicleSpawns[i]
       const g = world.groundHeight(vs.x, vs.z)
-      this.ctx.vehicles.push(new Vehicle(scene, vs.x, vs.z, vs.yaw, g))
+      this.ctx.vehicles.push(new Vehicle(scene, vs.x, vs.z, vs.yaw, g, vehiclePool[i % vehiclePool.length]))
     }
 
     // 顶栏地图名 + 锁定卡片地图说明（含本局天气）

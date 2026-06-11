@@ -278,7 +278,7 @@ export class HUD {
       this.promptShow(`<b>E</b> 拾取 <span class="${colorCls}">${p.nearLoot.name}</span>`)
     } else if (p.nearVehicle && !p.dropping) {
       const fuel = Math.round(p.nearVehicle.fuel)
-      this.promptShow(`<b>F</b> 驾驶越野车 <span class="dim">(油量 ${fuel}%)</span>`)
+      this.promptShow(`<b>F</b> 驾驶${p.nearVehicle.spec.label} <span class="dim">(油量 ${fuel}%)</span>`)
     } else this.promptHide()
 
     // 施法条
