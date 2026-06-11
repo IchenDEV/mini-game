@@ -802,3 +802,127 @@ export function skyGradient(top = '#7fa6c8', mid = '#aec8da', low = '#cdd9e0', h
   t.colorSpace = THREE.SRGBColorSpace
   return t
 }
+
+/**
+ * 近景草叶簇（透明竖贴图）：一个 quad 上 5-7 根独立窄草叶，
+ * 根部深、叶尖亮，少量枯黄叶混入。用于玩家脚边的 hero 草层。
+ */
+export function grassBladeClump(): THREE.CanvasTexture {
+  const n = 256
+  const [c, g] = canvas(n)
+  g.clearRect(0, 0, n, n)
+  const blades = 7
+  for (let i = 0; i < blades; i++) {
+    // 沿底边均匀分布 + 抖动，向外微张
+    const x0 = n * (0.16 + (i / (blades - 1)) * 0.68) + (Math.random() - 0.5) * 14
+    const h = n * (0.5 + Math.random() * 0.46)
+    const lean = (x0 - n / 2) * 0.35 + (Math.random() - 0.5) * 26
+    const w = 3.2 + Math.random() * 3.4
+    const dry = Math.random() < 0.18
+    const v = 150 + Math.floor(Math.random() * 86)
+    const tr = dry ? Math.min(255, v * 1.1) : v * 0.86
+    const tg = dry ? v * 0.84 : v
+    const tb = dry ? v * 0.38 : v * 0.46
+    const grad = g.createLinearGradient(x0, n, x0 + lean, n - h)
+    grad.addColorStop(0, `rgb(${Math.floor(tr * 0.48)},${Math.floor(tg * 0.56)},${Math.floor(tb * 0.46)})`)
+    grad.addColorStop(0.5, `rgb(${Math.floor(tr * 0.82)},${Math.floor(tg * 0.9)},${Math.floor(tb * 0.72)})`)
+    grad.addColorStop(1, `rgb(${Math.floor(tr)},${Math.floor(tg)},${Math.floor(tb)})`)
+    g.fillStyle = grad
+    // 叶片：底宽顶尖，中段沿 lean 弯曲
+    g.beginPath()
+    g.moveTo(x0 - w, n)
+    g.quadraticCurveTo(x0 - w * 0.3 + lean * 0.4, n - h * 0.55, x0 + lean, n - h)
+    g.quadraticCurveTo(x0 + w * 0.3 + lean * 0.4, n - h * 0.55, x0 + w, n)
+    g.closePath()
+    g.fill()
+    // 中脉高光
+    g.strokeStyle = `rgba(${Math.floor(tr * 1.06)},${Math.floor(tg * 1.04)},${Math.floor(tb * 0.8)},0.35)`
+    g.lineWidth = 1
+    g.beginPath()
+    g.moveTo(x0, n)
+    g.quadraticCurveTo(x0 + lean * 0.45, n - h * 0.55, x0 + lean, n - h + 2)
+    g.stroke()
+  }
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.anisotropy = 4
+  return t
+}
+
+/**
+ * 远景树 billboard（侧视整树剪影）：树干 + 多团椭圆冠层，
+ * 上部受光、下部压暗、边缘破碎。每个 biome 调一次。
+ */
+export function treeImpostor(form: 'broad' | 'dead' | 'tall', trunkHex: number, canopyHexes: number[]): THREE.CanvasTexture {
+  const n = 256
+  const [c, g] = canvas(n)
+  g.clearRect(0, 0, n, n)
+  const cx = n / 2
+  const trunkW = form === 'tall' ? 9 : form === 'dead' ? 7 : 11
+  const trunkTop = form === 'tall' ? n * 0.32 : form === 'dead' ? n * 0.18 : n * 0.42
+  // 树干（底宽顶窄微弯）
+  const tGrad = g.createLinearGradient(0, n, 0, trunkTop)
+  tGrad.addColorStop(0, hexCss(trunkHex, 0.75))
+  tGrad.addColorStop(1, hexCss(trunkHex, 1.05))
+  g.fillStyle = tGrad
+  g.beginPath()
+  g.moveTo(cx - trunkW, n)
+  g.quadraticCurveTo(cx - trunkW * 0.5 + 4, n * 0.6, cx - trunkW * 0.32 + 5, trunkTop)
+  g.lineTo(cx + trunkW * 0.32 + 5, trunkTop)
+  g.quadraticCurveTo(cx + trunkW * 0.5, n * 0.6, cx + trunkW, n)
+  g.closePath()
+  g.fill()
+  // 几根斜枝
+  for (let i = 0; i < (form === 'dead' ? 5 : 3); i++) {
+    const y0 = trunkTop + (n * 0.55 - trunkTop) * Math.random()
+    const dir = i % 2 === 0 ? 1 : -1
+    const len = n * (0.1 + Math.random() * 0.14)
+    g.strokeStyle = hexCss(trunkHex, 0.9)
+    g.lineWidth = 3 + Math.random() * 2
+    g.beginPath()
+    g.moveTo(cx, y0)
+    g.quadraticCurveTo(cx + dir * len * 0.6, y0 - len * 0.5, cx + dir * len, y0 - len * 0.9)
+    g.stroke()
+  }
+  if (form !== 'dead') {
+    // 冠层团块：中心一大团 + 周围错落小团，上亮下暗
+    const cyC = form === 'tall' ? n * 0.26 : n * 0.34
+    const R = form === 'tall' ? n * 0.30 : n * 0.32
+    const base = canopyHexes[0]
+    const blobs = 16
+    for (let i = 0; i < blobs; i++) {
+      const a = Math.random() * Math.PI * 2
+      const r = Math.sqrt(Math.random()) * R * 0.85
+      const bx = cx + Math.cos(a) * r * 1.12
+      const by = cyC + Math.sin(a) * r * 0.78
+      const br = R * (0.22 + Math.random() * 0.3)
+      const litT = clamp01(0.78 - (by - (cyC - R)) / (R * 2) * 0.85 + Math.random() * 0.2)
+      const hex = canopyHexes[Math.floor(Math.random() * canopyHexes.length)]
+      g.fillStyle = hexCss(hex, 0.62 + litT * 0.95)
+      g.beginPath()
+      g.ellipse(bx, by, br, br * (0.74 + Math.random() * 0.2), Math.random() * Math.PI, 0, Math.PI * 2)
+      g.fill()
+    }
+    // 边缘碎叶（打破圆轮廓）
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random() * Math.PI * 2
+      const r = R * (0.85 + Math.random() * 0.32)
+      const bx = cx + Math.cos(a) * r * 1.12
+      const by = cyC + Math.sin(a) * r * 0.78
+      if (by > n * 0.78) continue
+      const hex = canopyHexes[Math.floor(Math.random() * canopyHexes.length)]
+      g.fillStyle = hexCss(hex, 0.7 + Math.random() * 0.7)
+      g.beginPath()
+      g.ellipse(bx, by, 2.5 + Math.random() * 4.5, 2 + Math.random() * 3, Math.random() * Math.PI, 0, Math.PI * 2)
+      g.fill()
+    }
+  }
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.anisotropy = 4
+  return t
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v
+}

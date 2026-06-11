@@ -105,6 +105,20 @@ export class World {
   private grassLastCx = 1e9
   private grassLastCz = 1e9
 
+  /** 玩家世界坐标（hero 草压弯 shader uniform），updateGrass 每帧写入 */
+  private playerPos = { value: new THREE.Vector3(0, -100, 0) }
+  // 近景 hero 草叶层：更小半径、独立 cell，真草叶面片
+  private heroGrass: THREE.InstancedMesh | null = null
+  private heroCap = 0
+  private heroPerCell = 0
+  private readonly heroCell = 7
+  private readonly heroR = 3
+  private heroLastCx = 1e9
+  private heroLastCz = 1e9
+
+  // 树距离 LOD：近桶细节网格 / 远桶 billboard
+  private treeLod: { cx: number; cz: number; detail: THREE.Object3D[]; far: THREE.Object3D[]; isDetail: boolean }[] = []
+
   constructor(cfg: MapConfig) {
     this.cfg = cfg
     this.biome = cfg.biome
@@ -681,7 +695,19 @@ export class World {
       branch(0.06, 0.12, 1.6, 3.2, -1.0, 2.8)
       branch(0.05, 0.1, 1.4, 3.6, 1.05, 4.6)
     }
-    return mergeGeometries(parts)
+    const merged = mergeGeometries(parts)
+    // 主干弯曲：顶点随高度做 S 形偏移，打破"直筒插地"感（实例随机 yaw 让弯向分散）
+    const top = form === 'tall' ? 6.8 : 4.4
+    const posA = merged.getAttribute('position') as THREE.BufferAttribute
+    for (let i = 0; i < posA.count; i++) {
+      const y = posA.getY(i)
+      const k = clamp(y / top, 0, 1)
+      posA.setX(i, posA.getX(i) + Math.sin(k * Math.PI * 0.85) * 0.22 + k * k * 0.16)
+      posA.setZ(i, posA.getZ(i) + Math.sin(k * Math.PI * 1.4 + 1.2) * 0.1)
+    }
+    posA.needsUpdate = true
+    merged.computeVertexNormals()
+    return merged
   }
 
   /** 叶团面片星形冠（原点在冠心，贴 alpha 叶团）；法线向球面外推获得柔和受光 */
@@ -742,13 +768,22 @@ export class World {
       return iz * CH + ix
     }
 
-    // ---- 树（写实化：树干带枝杈贴树皮 + 叶团面片星形冠，按 16 块分桶）----
+    // ---- 树（细桶距离 LOD：近桶 = 树干+叶冠细节网格，远桶 = billboard）----
     type TreeInst = { m: THREE.Matrix4; c: THREE.Color }
-    const trunkBuckets: THREE.Matrix4[][] = Array.from({ length: CH * CH }, () => [])
-    const canopyBuckets: TreeInst[][] = Array.from({ length: CH * CH }, () => [])
+    const VCH = 8
+    const vChunk = (this.half * 2) / VCH
+    const vidx = (x: number, z: number) => {
+      const ix = clamp(Math.floor((x + this.half) / vChunk), 0, VCH - 1)
+      const iz = clamp(Math.floor((z + this.half) / vChunk), 0, VCH - 1)
+      return iz * VCH + ix
+    }
+    const trunkBuckets: THREE.Matrix4[][] = Array.from({ length: VCH * VCH }, () => [])
+    const canopyBuckets: TreeInst[][] = Array.from({ length: VCH * VCH }, () => [])
+    const billboardBuckets: TreeInst[][] = Array.from({ length: VCH * VCH }, () => [])
     const form = b.treeForm
     // 冠心相对树根高度（随树干 y 缩放再乘）
     const canopyBaseY = form === 'tall' ? 5.6 : 3.2
+    const bbH = form === 'tall' ? 9.6 : form === 'dead' ? 4.8 : 7.2
     let placed = 0, tries = 0
     while (placed < b.treeCount && tries++ < b.treeCount * 7) {
       const x = this.rng.range(-lim, lim), z = this.rng.range(-lim, lim)
@@ -761,22 +796,27 @@ export class World {
       const s = this.rng.range(b.treeScale[0], b.treeScale[1])
       const yaw = this.rng.range(0, Math.PI * 2)
       q.setFromAxisAngle(up, yaw)
-      const bkt = cidx(x, z)
+      const bkt = vidx(x, z)
       const sw = 0.82 + s * 0.28
       const sy = 0.72 + s * 0.42
       vp.set(x, h - 0.12, z); vs.set(sw, sy, sw)
       trunkBuckets[bkt].push(m4.clone().compose(vp, q, vs))
       const hasCanopy = form !== 'dead' || this.rng.chance(0.45)
+      const tint = new THREE.Color(this.rng.pick(b.canopyColors)).multiplyScalar(1.8)
       if (hasCanopy) {
         const cy = h + canopyBaseY * sy + this.rng.range(-0.3, 0.5)
         const cs2 = form === 'dead' ? s * 0.55 : s
         vp.set(x, cy, z); vs.set(cs2, cs2 * this.rng.range(0.85, 1.1), cs2)
         q2.setFromAxisAngle(up, this.rng.range(0, Math.PI * 2))
-        canopyBuckets[bkt].push({
-          m: m4.clone().compose(vp, q2, vs),
-          c: new THREE.Color(this.rng.pick(b.canopyColors)).multiplyScalar(1.8),
-        })
+        canopyBuckets[bkt].push({ m: m4.clone().compose(vp, q2, vs), c: tint })
       }
+      // billboard 实例：贴地竖卡，缩放跟随树体
+      vp.set(x, h - 0.1, z)
+      vs.set(sw * (form === 'dead' ? 0.9 : 1.25), sy, sw * (form === 'dead' ? 0.9 : 1.25))
+      billboardBuckets[bkt].push({
+        m: m4.clone().compose(vp, q, vs),
+        c: hasCanopy ? tint : new THREE.Color(0xffffff),
+      })
       const trunkH = (form === 'tall' ? 6.6 : 4.2) * sy
       this.col.addCyl(x, z, form === 'tall' ? 0.5 : 0.42, h, h + trunkH * 0.82)
       this.treeAOPts.push({ x, z, r: (form === 'tall' ? 2.4 : 1.9) * sw })
@@ -787,17 +827,77 @@ export class World {
     const trunkMat = new THREE.MeshLambertMaterial({
       map: this.tex('bark'),
       color: new THREE.Color(b.trunkColor).multiplyScalar(1.85),
+      // 背光面微抬：树荫下树干不死黑
+      emissive: new THREE.Color(b.trunkColor).multiplyScalar(0.22),
     })
     const canGeo = this.canopyGeometry(form)
     const canMat = new THREE.MeshLambertMaterial({
       map: leavesTex, alphaTest: 0.42, side: THREE.DoubleSide,
-      // 叶片透射假象：抬升背光面，避免树冠死黑
-      emissive: 0x2a3819, emissiveMap: leavesTex,
+      // 叶片透射假象：抬升背光面偏暖，避免树冠死黑
+      emissive: 0x33401c, emissiveMap: leavesTex,
     })
+    // 树冠两层风：大枝低频整体摆 + 叶簇高频细抖（幅度按冠内高度加权）
+    const windT = this.windT
+    canMat.onBeforeCompile = (sh) => {
+      sh.uniforms.uWindT = windT
+      sh.vertexShader = ('uniform float uWindT;\n' + sh.vertexShader).replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec2 cwp = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+          float cBig = sin(uWindT * 0.85 + cwp.x * 0.045 + cwp.y * 0.038)
+                     + 0.5 * sin(uWindT * 1.7 + cwp.x * 0.021 - cwp.y * 0.027);
+          float cFlut = sin(uWindT * 5.4 + position.x * 2.3 + position.y * 1.9 + cwp.x * 1.7);
+          float cw = clamp(position.y * 0.22 + 0.62, 0.0, 1.0);
+          transformed.x += cBig * 0.13 * cw + cFlut * 0.034;
+          transformed.z += cBig * 0.09 * cw + cFlut * 0.027;
+          transformed.y += cFlut * 0.016;
+        #endif`,
+      )
+    }
     const canDepth = new THREE.MeshDepthMaterial({
       depthPacking: THREE.RGBADepthPacking, map: leavesTex, alphaTest: 0.42,
     })
-    for (let bIdx = 0; bIdx < CH * CH; bIdx++) {
+    // billboard：圆柱面朝相机（shader 抵消实例 yaw），远处用 Basic + 雾即可
+    const bbTex = TEX.treeImpostor(form, b.trunkColor, b.canopyColors)
+    const bbMat = new THREE.MeshBasicMaterial({
+      map: bbTex, alphaTest: 0.42, side: THREE.DoubleSide, fog: true,
+    })
+    bbMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          // 实例位置与水平缩放
+          vec3 bbPos = vec3(instanceMatrix[3]);
+          float bbS = length(vec3(instanceMatrix[0]));
+          vec2 toCam = cameraPosition.xz - bbPos.xz;
+          float bbYaw = atan(toCam.x, toCam.y);
+          float cy2 = cos(bbYaw), sy2 = sin(bbYaw);
+          // 用原始局部顶点（position）重建：绕 Y 朝向相机，再放缩平移
+          vec3 lp = position;
+          transformed = vec3(cy2 * lp.x + sy2 * lp.z, lp.y * length(vec3(instanceMatrix[1])) / bbS, -sy2 * lp.x + cy2 * lp.z) * bbS;
+          transformed += bbPos;
+          // 抵消后续 instanceMatrix 乘法：提前左乘逆——这里直接跳过实例变换
+        #endif`,
+      ).replace(
+        '#include <project_vertex>',
+        `#ifdef USE_INSTANCING
+          vec4 mvPosition = viewMatrix * vec4(transformed, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+        #else
+          #include <project_vertex>
+        #endif`,
+      )
+    }
+    const bbGeo = new THREE.PlaneGeometry(bbH, bbH, 1, 1)
+    bbGeo.translate(0, bbH * 0.5, 0)
+    this.treeLod = []
+    for (let bIdx = 0; bIdx < VCH * VCH; bIdx++) {
+      const cellCx = -this.half + vChunk * ((bIdx % VCH) + 0.5)
+      const cellCz = -this.half + vChunk * (Math.floor(bIdx / VCH) + 0.5)
+      const detail: THREE.Object3D[] = []
+      const far: THREE.Object3D[] = []
       const ts = trunkBuckets[bIdx]
       if (ts.length) {
         const tm = new THREE.InstancedMesh(trunkGeo, trunkMat, ts.length)
@@ -805,6 +905,7 @@ export class World {
         tm.castShadow = true
         tm.computeBoundingSphere()
         this.group.add(tm)
+        detail.push(tm)
       }
       const cs = canopyBuckets[bIdx]
       if (cs.length) {
@@ -814,6 +915,19 @@ export class World {
         cm.customDepthMaterial = canDepth
         cm.computeBoundingSphere()
         this.group.add(cm)
+        detail.push(cm)
+      }
+      const bs = billboardBuckets[bIdx]
+      if (bs.length) {
+        const bm = new THREE.InstancedMesh(bbGeo, bbMat, bs.length)
+        bs.forEach((c, i) => bm.setMatrixAt(i, c.m))
+        bm.computeBoundingSphere()
+        bm.visible = false
+        this.group.add(bm)
+        far.push(bm)
+      }
+      if (detail.length || far.length) {
+        this.treeLod.push({ cx: cellCx, cz: cellCz, detail, far, isDetail: true })
       }
     }
 
@@ -854,6 +968,21 @@ export class World {
       map: leavesTex, alphaTest: 0.42, side: THREE.DoubleSide,
       emissive: 0x26331a, emissiveMap: leavesTex,
     })
+    // 灌木轻微抖动（比树冠快、比草弱）
+    bushMat.onBeforeCompile = (sh) => {
+      sh.uniforms.uWindT = windT
+      sh.vertexShader = ('uniform float uWindT;\n' + sh.vertexShader).replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec2 bwp = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+          float bsw = sin(uWindT * 2.3 + bwp.x * 0.13 + bwp.y * 0.11);
+          float bk = clamp(position.y * 0.9, 0.0, 1.0);
+          transformed.x += bsw * 0.045 * bk;
+          transformed.z += bsw * 0.034 * bk;
+        #endif`,
+      )
+    }
     const bushBuckets: TreeInst[][] = Array.from({ length: CH * CH }, () => [])
     let bi = 0, btries = 0
     while (bi < b.bushCount && btries++ < b.bushCount * 6) {
@@ -896,11 +1025,13 @@ export class World {
           `#include <begin_vertex>
           #ifdef USE_INSTANCING
             vec2 gwp = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+            // 阵风包络：让风力随时间起伏而非恒定振荡
+            float gust = 0.6 + 0.4 * sin(uWindT * 0.5 + gwp.x * 0.013 + gwp.y * 0.017);
             float gsw = sin(uWindT * 1.9 + gwp.x * 0.21 + gwp.y * 0.17)
                       + 0.45 * sin(uWindT * 3.6 + gwp.x * 0.07 - gwp.y * 0.11);
             float gbend = smoothstep(0.04, 0.85, position.y);
-            transformed.x += gsw * 0.065 * gbend;
-            transformed.z += gsw * 0.05 * gbend;
+            transformed.x += gsw * gust * 0.078 * gbend;
+            transformed.z += gsw * gust * 0.06 * gbend;
           #endif`,
         )
       }
@@ -918,6 +1049,60 @@ export class World {
         gm.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
         this.group.add(gm)
       }
+
+      // ---- 近景 hero 草叶层：玩家脚边的真草叶（4 段可弯 + 玩家压弯）----
+      const heroTex = TEX.grassBladeClump()
+      const heroMat = new THREE.MeshLambertMaterial({
+        map: heroTex, alphaTest: 0.45, side: THREE.DoubleSide,
+        color: new THREE.Color(b.grassTint).lerp(new THREE.Color(0xffffff), 0.55),
+        // 叶面透光补偿：背光面不死黑（与中距草同款做法）
+        emissive: 0x222b12, emissiveMap: heroTex,
+      })
+      const playerPos = this.playerPos
+      heroMat.onBeforeCompile = (sh) => {
+        sh.uniforms.uWindT = windT
+        sh.uniforms.uPlayer = playerPos
+        sh.vertexShader = ('uniform float uWindT;\nuniform vec3 uPlayer;\n' + sh.vertexShader).replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          #ifdef USE_INSTANCING
+            vec2 hwp = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
+            float hBend = smoothstep(0.02, 0.95, position.y);
+            // 风：阵风包络 + 双频摆，顶端弯曲大、根部不动
+            float hGust = 0.55 + 0.45 * sin(uWindT * 0.55 + hwp.x * 0.011 + hwp.y * 0.014);
+            float hSw = sin(uWindT * 2.2 + hwp.x * 0.31 + hwp.y * 0.23)
+                      + 0.5 * sin(uWindT * 4.4 + hwp.x * 0.12 - hwp.y * 0.09);
+            transformed.x += hSw * hGust * 0.085 * hBend * hBend;
+            transformed.z += hSw * hGust * 0.066 * hBend * hBend;
+            // 玩家压弯：脚边草向外倒伏并下压（世界方向转回实例局部空间）
+            vec3 hWorld = vec3(instanceMatrix * vec4(transformed, 1.0));
+            vec2 toP = hWorld.xz - uPlayer.xz;
+            float pd = length(toP);
+            float push = (1.0 - smoothstep(0.15, 1.25, pd)) * hBend;
+            if (push > 0.001 && abs(hWorld.y - uPlayer.y) < 2.2) {
+              vec2 dir = toP / max(pd, 0.05);
+              float invS = 1.0 / max(length(vec3(instanceMatrix[0])), 1e-4);
+              float ct = instanceMatrix[0][0] * invS;
+              float st = -instanceMatrix[0][2] * invS;
+              vec2 dLoc = vec2(ct * dir.x - st * dir.y, st * dir.x + ct * dir.y);
+              transformed.x += dLoc.x * push * 0.5 * invS;
+              transformed.z += dLoc.y * push * 0.5 * invS;
+              transformed.y -= push * 0.3 / max(length(vec3(instanceMatrix[1])), 1e-4);
+            }
+          #endif`,
+        )
+      }
+      const heroGeo = new THREE.PlaneGeometry(0.62, 0.92, 1, 4)
+      heroGeo.translate(0, 0.44, 0)
+      const heroCells = Math.max(1, Math.round(Math.PI * this.heroR * this.heroR))
+      // hero 密度按 biome 草量缩放：草原 ~52/cell
+      this.heroPerCell = Math.max(14, Math.round(b.grassCount / 210))
+      this.heroCap = this.heroPerCell * (heroCells + this.heroR * 5)
+      this.heroGrass = new THREE.InstancedMesh(heroGeo, heroMat, this.heroCap)
+      this.heroGrass.count = 0
+      this.heroGrass.frustumCulled = false
+      this.heroGrass.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+      this.group.add(this.heroGrass)
     }
 
     // ---- 散石（16 桶）----
@@ -945,6 +1130,29 @@ export class World {
       rm.castShadow = true
       rm.computeBoundingSphere()
       this.group.add(rm)
+    }
+
+    // ---- 树根过渡：部分树根旁倒伏断枝 + 小石（树不再"直插地面"）----
+    if (this.treeAOPts.length) {
+      const twigGeo = new THREE.CylinderGeometry(0.045, 0.085, 1, 5)
+      twigGeo.rotateZ(Math.PI / 2)
+      const twigMat = new THREE.MeshLambertMaterial({ map: this.tex('bark'), color: new THREE.Color(b.trunkColor).multiplyScalar(1.5) })
+      const picks = this.treeAOPts.filter(() => this.rng.chance(0.14))
+      if (picks.length) {
+        const tw = new THREE.InstancedMesh(twigGeo, twigMat, picks.length)
+        picks.forEach((p, i) => {
+          const a = this.rng.range(0, Math.PI * 2)
+          const d = p.r * this.rng.range(0.5, 1.1)
+          const x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d
+          const len = this.rng.range(0.7, 1.6)
+          vp.set(x, this.groundHeight(x, z) + 0.05, z)
+          q.setFromAxisAngle(up, this.rng.range(0, Math.PI * 2))
+          vs.set(len, this.rng.range(0.7, 1.1), this.rng.range(0.7, 1.1))
+          tw.setMatrixAt(i, m4.clone().compose(vp, q, vs))
+        })
+        tw.computeBoundingSphere()
+        this.group.add(tw)
+      }
     }
 
     // ---- 地面贴花：落叶簇 / 碎石簇（贴合地面坡度的 alpha 面片）----
@@ -1004,6 +1212,10 @@ export class World {
    */
   updateGrass(px: number, pz: number) {
     if (this.sky) this.sky.position.set(px, 0, pz)
+    // hero 草压弯 uniform：玩家脚底位置
+    this.playerPos.value.set(px, this.groundHeight(px, pz), pz)
+    this.updateTreeLod(px, pz)
+    this.updateHeroGrass(px, pz)
     const g1 = this.grass1, g2 = this.grass2
     if (!g1 || !g2) return
     const cell = this.grassCell
@@ -1065,6 +1277,81 @@ export class World {
     g2.instanceMatrix.needsUpdate = true
     if (g1.instanceColor) g1.instanceColor.needsUpdate = true
     if (g2.instanceColor) g2.instanceColor.needsUpdate = true
+  }
+
+  /** 树距离 LOD：近桶显示细节网格，远桶切 billboard（按桶矩形最近距离 + 滞回防闪烁） */
+  private updateTreeLod(px: number, pz: number) {
+    const halfCell = (this.half * 2) / 8 / 2
+    const NEAR2 = 130 * 130
+    const FAR2 = 160 * 160
+    for (const lod of this.treeLod) {
+      // 点到桶 AABB 的最近距离
+      const dx = Math.max(0, Math.abs(px - lod.cx) - halfCell)
+      const dz = Math.max(0, Math.abs(pz - lod.cz) - halfCell)
+      const d2 = dx * dx + dz * dz
+      const wantDetail = lod.isDetail ? d2 < FAR2 : d2 < NEAR2
+      if (wantDetail === lod.isDetail) continue
+      lod.isDetail = wantDetail
+      for (const m of lod.detail) m.visible = wantDetail
+      for (const m of lod.far) m.visible = !wantDetail
+    }
+  }
+
+  /** 近景 hero 草叶：小半径高密度，确定性散列铺设 */
+  private updateHeroGrass(px: number, pz: number) {
+    const hm = this.heroGrass
+    if (!hm) return
+    const cell = this.heroCell
+    const ccx = Math.floor(px / cell), ccz = Math.floor(pz / cell)
+    if (ccx === this.heroLastCx && ccz === this.heroLastCz) return
+    this.heroLastCx = ccx; this.heroLastCz = ccz
+
+    const b = this.biome
+    const lim = this.half - 50
+    const R = this.heroR
+    const cap = this.heroCap
+    const m4 = new THREE.Matrix4()
+    const q = new THREE.Quaternion()
+    const vp = new THREE.Vector3()
+    const vs = new THREE.Vector3()
+    const up = new THREE.Vector3(0, 1, 0)
+    const tint = new THREE.Color()
+    let n = 0
+    for (let dz = -R; dz <= R && n < cap; dz++) {
+      for (let dx = -R; dx <= R && n < cap; dx++) {
+        if (dx * dx + dz * dz > R * R + 1) continue
+        const gx = ccx + dx, gz = ccz + dz
+        let s = ((gx * 92837111) ^ (gz * 689287499) ^ (this.cfg.seed * 283923481)) >>> 0
+        const rnd = () => {
+          s = (s + 0x6d2b79f5) | 0
+          let t = Math.imul(s ^ (s >>> 15), 1 | s)
+          t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+          return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+        }
+        for (let k = 0; k < this.heroPerCell && n < cap; k++) {
+          const x = (gx + rnd()) * cell, z = (gz + rnd()) * cell
+          const yawR = rnd() * Math.PI * 2
+          const sc = 0.62 + rnd() * 0.85
+          const sy = 0.72 + rnd() * 0.6
+          const hueJ = rnd() * 0.06 - 0.025
+          const lightJ = rnd() * 0.16 - 0.07
+          if (Math.abs(x) > lim || Math.abs(z) > lim) continue
+          const h = this.groundHeight(x, z)
+          if (h < this.waterY + 0.6) continue
+          if (this.roadDist(x, z) < 4 || this.inPoi(x, z, 1)) continue
+          vp.set(x, h - 0.02, z)
+          vs.set(sc, sc * sy, sc)
+          q.setFromAxisAngle(up, yawR)
+          tint.setHSL(b.grassHue + hueJ, b.grassSat * 0.85, Math.min(0.66, b.grassLight + 0.07 + lightJ))
+          hm.setMatrixAt(n, m4.compose(vp, q, vs))
+          hm.setColorAt(n, tint)
+          n++
+        }
+      }
+    }
+    hm.count = n
+    hm.instanceMatrix.needsUpdate = true
+    if (hm.instanceColor) hm.instanceColor.needsUpdate = true
   }
 
   // ---------------- 小地图 ----------------
