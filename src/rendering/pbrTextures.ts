@@ -34,10 +34,9 @@ function textureBaseUrl(id: PbrSetId): string {
   return new URL(`textures/${FILES[id]}`, assetBase).href
 }
 
-function loadOne(url: string, srgb: boolean, onFail?: () => void, repeatX = 1, repeatY = 1): THREE.Texture {
+function loadOne(url: string, srgb: boolean, onFail?: () => void): THREE.Texture {
   const tex = loader.load(url, undefined, undefined, onFail)
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping
-  tex.repeat.set(repeatX, repeatY)
   if (srgb) tex.colorSpace = THREE.SRGBColorSpace
   tex.anisotropy = 4
   return tex
@@ -59,15 +58,4 @@ export function pbr(id: PbrSetId): PbrMaps {
     cache.set(id, set)
   }
   return set
-}
-
-/** 独立 repeat 的贴图组（地形等需要不同平铺密度的场合） */
-export function pbrRepeated(id: PbrSetId, repeatX: number, repeatY: number): PbrMaps {
-  const p = textureBaseUrl(id)
-  const result: PbrMaps = {
-    map: loadOne(`${p}_col.jpg`, true, undefined, repeatX, repeatY),
-    normalMap: loadOne(`${p}_nrm.jpg`, false, () => { result.normalMap = null }, repeatX, repeatY),
-    roughnessMap: loadOne(`${p}_rgh.jpg`, false, () => { result.roughnessMap = null }, repeatX, repeatY),
-  }
-  return result
 }

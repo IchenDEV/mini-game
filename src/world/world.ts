@@ -5,7 +5,7 @@ import { RNG } from '../utils/rng'
 import { clamp, lerp, smoothstep, dist2D } from '../utils/math'
 import * as TEX from './textures'
 import { surface } from '../rendering/materials'
-import { pbr, pbrRepeated, type PbrSetId } from '../rendering/pbrTextures'
+import { pbr, type PbrSetId } from '../rendering/pbrTextures'
 import { rockGeo, grassClumpGeo } from '../rendering/smoothGeo'
 import type { MapConfig } from './mapConfig'
 import type { BiomeDef } from './biome'
@@ -602,29 +602,17 @@ export class World {
     const cRock = new THREE.Color(this.biome.gRock)
     const cRoad = new THREE.Color(this.biome.gRoad)
     const tmp = new THREE.Color()
-    // 地面实拍 PBR：草原/雨林用草地集，沙漠用沙地集（颜色由顶点色主导，底图提供细节与法线）
-    const groundSet: PbrSetId = this.biome.id === 'desert' ? 'sand' : 'grass'
-    const rep = chunkSize / 4.2
-    const gMaps = pbrRepeated(groundSet, rep, rep)
-    // 底图色彩去饱和归一：保留明度细节，色相交给 biome 顶点色
-    const mat = new THREE.MeshStandardMaterial({
-      vertexColors: true, map: gMaps.map,
-      normalMap: gMaps.normalMap ?? undefined,
-      roughness: 1, metalness: 0,
-    })
-    mat.normalScale.set(0.7, 0.7)
-    // 双尺度采样混合：再叠一层低频采样打散平铺感；并把底图往中灰拉（vertexColor 调色为主）
+    const detail = this.biome.groundDetail()
+    detail.repeat.set(chunkSize / 5.0, chunkSize / 5.0)
+    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: detail })
+    // 双尺度采样混合：再叠一层低频采样打散平铺感
     mat.onBeforeCompile = (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace(
         '#include <map_fragment>',
         `#ifdef USE_MAP
           vec4 tex1 = texture2D( map, vMapUv );
           vec4 tex2 = texture2D( map, vMapUv * 0.1273 + vec2( 0.37, 0.71 ) );
-          vec4 texMix = mix( tex1, tex2, 0.42 );
-          float texLum = dot( texMix.rgb, vec3( 0.299, 0.587, 0.114 ) );
-          // 去饱和 65% 并归一亮度：避免底图固有色与 biome 顶点色相乘发脏
-          texMix.rgb = mix( texMix.rgb, vec3( texLum ), 0.65 ) * 1.55;
-          diffuseColor *= texMix;
+          diffuseColor *= mix( tex1, tex2, 0.42 );
         #endif`,
       )
     }
