@@ -276,30 +276,21 @@ export class World {
   tex(kind: TexKind): THREE.Texture {
     let t = this.texCache.get(kind)
     if (!t) {
-      // 优先用实拍 PBR 颜色贴图，无对应集合时回退程序化 Canvas
-      const set = TEX_PBR[kind][2]
-      t = set ? pbr(set).map : TEX_BUILDERS[kind]()
+      t = TEX_BUILDERS[kind]()
       this.texCache.set(kind, t)
     }
     return t
   }
 
-  /** 建筑/道具材质：实拍 PBR 三贴图（颜色/法线/粗糙度）+ 平滑着色（全局缓存） */
+  /** 建筑/道具材质：世界级大面积表面用程序化贴图，避免实拍 PBR 连乘后远景发黑 */
   mat(color: number, kind: TexKind | null = null): THREE.MeshStandardMaterial {
     if (!kind) return surface({ color, roughness: 0.85, metalness: 0 })
-    const [rough, met, set, tintMode] = TEX_PBR[kind]
-    // 自带固有色的底图：着色向白衰减，避免色彩相乘过脏（金属板保留更多本色）
-    const tint = tintMode === 'soft'
-      ? new THREE.Color(color).lerp(new THREE.Color(0xffffff), kind === 'metal' ? 0.4 : 0.6).getHex()
-      : color
-    const maps = set ? pbr(set) : null
+    const [rough, met] = TEX_PBR[kind]
     return surface({
-      color: tint,
+      color,
       map: this.tex(kind),
-      normalMap: maps?.normalMap ?? undefined,
-      roughnessMap: maps?.roughnessMap ?? undefined,
-      normalScale: 0.85,
       roughness: rough, metalness: met,
+      flatShading: true,
     })
   }
 
@@ -464,14 +455,9 @@ export class World {
     // 桥
     for (const bx of cfg.bridges) bridge(this, bx)
 
-    // 大型岩石掩体（开阔地带）：平滑噪声岩 + 实拍岩石纹理
+    // 大型岩石掩体（开阔地带）：颜色由 biome 控制，避免深色岩石贴图压黑
     const bigRocks = Math.round(this.half / 12)
-    const rockMaps = pbr('rock')
-    const bigRockMat = surface({
-      color: new THREE.Color(this.biome.gRock).lerp(new THREE.Color(0xffffff), 0.35).getHex(),
-      map: rockMaps.map, normalMap: rockMaps.normalMap, roughnessMap: rockMaps.roughnessMap,
-      normalScale: 1.0, roughness: 0.95, metalness: 0,
-    })
+    const bigRockMat = this.mat(new THREE.Color(this.biome.gRock).lerp(new THREE.Color(0xffffff), 0.18).getHex())
     for (let i = 0; i < bigRocks; i++) {
       const x = this.rng.range(-lim, lim), z = this.rng.range(-lim, lim)
       if (this.inPoi(x, z, 20) || this.nearRiver(x, z, 8)) continue
@@ -1153,13 +1139,9 @@ export class World {
       this.group.add(this.heroGrass)
     }
 
-    // ---- 散石（16 桶）：平滑噪声岩 + 岩石法线 ----
+    // ---- 散石（16 桶）：平滑噪声岩 + biome 调色 ----
     const scatterRockGeo = rockGeo(3, 1)
-    const rockMaps2 = pbr('rock')
-    const rockMat = new THREE.MeshStandardMaterial({
-      map: rockMaps2.map, normalMap: rockMaps2.normalMap ?? undefined,
-      roughness: 0.95, metalness: 0,
-    })
+    const rockMat = this.mat(new THREE.Color(b.gRock).lerp(new THREE.Color(0xffffff), 0.12).getHex())
     const rockBuckets: TreeInst[][] = Array.from({ length: CH * CH }, () => [])
     let ri = 0, rtries = 0
     while (ri < b.rockCount && rtries++ < b.rockCount * 6) {
