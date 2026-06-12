@@ -5,7 +5,7 @@ import { RNG } from '../utils/rng'
 import { clamp, lerp, smoothstep, dist2D } from '../utils/math'
 import * as TEX from './textures'
 import { surface } from '../rendering/materials'
-import { pbr, pbrCloned, type PbrSetId } from '../rendering/pbrTextures'
+import { pbr, pbrRepeated, type PbrSetId } from '../rendering/pbrTextures'
 import { rockGeo, grassClumpGeo } from '../rendering/smoothGeo'
 import type { MapConfig } from './mapConfig'
 import type { BiomeDef } from './biome'
@@ -605,7 +605,7 @@ export class World {
     // 地面实拍 PBR：草原/雨林用草地集，沙漠用沙地集（颜色由顶点色主导，底图提供细节与法线）
     const groundSet: PbrSetId = this.biome.id === 'desert' ? 'sand' : 'grass'
     const rep = chunkSize / 4.2
-    const gMaps = pbrCloned(groundSet, rep, rep)
+    const gMaps = pbrRepeated(groundSet, rep, rep)
     // 底图色彩去饱和归一：保留明度细节，色相交给 biome 顶点色
     const mat = new THREE.MeshStandardMaterial({
       vertexColors: true, map: gMaps.map,

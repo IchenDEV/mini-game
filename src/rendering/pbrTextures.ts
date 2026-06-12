@@ -30,9 +30,14 @@ const loader = new THREE.TextureLoader()
 const cache = new Map<string, PbrMaps>()
 const assetBase = new URL(import.meta.env.BASE_URL, window.location.href)
 
-function loadOne(url: string, srgb: boolean, onFail?: () => void): THREE.Texture {
+function textureBaseUrl(id: PbrSetId): string {
+  return new URL(`textures/${FILES[id]}`, assetBase).href
+}
+
+function loadOne(url: string, srgb: boolean, onFail?: () => void, repeatX = 1, repeatY = 1): THREE.Texture {
   const tex = loader.load(url, undefined, undefined, onFail)
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+  tex.repeat.set(repeatX, repeatY)
   if (srgb) tex.colorSpace = THREE.SRGBColorSpace
   tex.anisotropy = 4
   return tex
@@ -44,7 +49,7 @@ function loadOne(url: string, srgb: boolean, onFail?: () => void): THREE.Texture
 export function pbr(id: PbrSetId): PbrMaps {
   let set = cache.get(id)
   if (!set) {
-    const p = new URL(`textures/${FILES[id]}`, assetBase).href
+    const p = textureBaseUrl(id)
     const result: PbrMaps = {
       map: loadOne(`${p}_col.jpg`, true),
       normalMap: loadOne(`${p}_nrm.jpg`, false, () => { result.normalMap = null }),
@@ -56,15 +61,13 @@ export function pbr(id: PbrSetId): PbrMaps {
   return set
 }
 
-/** 独立 repeat 的克隆（地形等需要不同平铺密度的场合） */
-export function pbrCloned(id: PbrSetId, repeatX: number, repeatY: number): PbrMaps {
-  const base = pbr(id)
-  const cl = (t: THREE.Texture | null) => {
-    if (!t) return null
-    const c = t.clone()
-    c.repeat.set(repeatX, repeatY)
-    c.needsUpdate = true
-    return c
+/** 独立 repeat 的贴图组（地形等需要不同平铺密度的场合） */
+export function pbrRepeated(id: PbrSetId, repeatX: number, repeatY: number): PbrMaps {
+  const p = textureBaseUrl(id)
+  const result: PbrMaps = {
+    map: loadOne(`${p}_col.jpg`, true, undefined, repeatX, repeatY),
+    normalMap: loadOne(`${p}_nrm.jpg`, false, () => { result.normalMap = null }, repeatX, repeatY),
+    roughnessMap: loadOne(`${p}_rgh.jpg`, false, () => { result.roughnessMap = null }, repeatX, repeatY),
   }
-  return { map: cl(base.map)!, normalMap: cl(base.normalMap), roughnessMap: cl(base.roughnessMap) }
+  return result
 }
