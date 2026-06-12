@@ -1,5 +1,7 @@
+import * as THREE from 'three'
 import type { World } from '../world'
 import type { LocalBox } from '../poi/buildingParts'
+import { cyl, torus } from '../../rendering/smoothGeo'
 
 /**
  * props：室内外家具道具（桌椅/柜子/货架/床垫/油桶），
@@ -61,9 +63,30 @@ export function mattress(B: LocalBox, lx: number, g: number, lz: number) {
   B(0.97, 0.05, 1.0, lx, g + 0.22, lz + 0.4, 0x6e7a55, false)
 }
 
-/** 油桶（世界坐标） */
+/** 油桶（世界坐标）：平滑圆柱桶身 + 滚压箍 ×2 + 内凹顶盖 */
 export function barrel(w: World, x: number, z: number, c = 0xa84a32) {
   const g = w.groundHeight(x, z)
-  w.box(0.62, 0.92, 0.62, x, g, z, c, true, true, 'metal')
-  w.box(0.66, 0.05, 0.66, x, g + 0.4, z, 0x3a3f44, false, false, 'metal')
+  const bodyMat = w.mat(c, 'metal')
+  const body = new THREE.Mesh(cyl(0.31, 0.31, 0.92, 22), bodyMat)
+  body.position.set(x, g + 0.46, z)
+  body.castShadow = true
+  body.receiveShadow = true
+  w.group.add(body)
+  // 滚压箍（上下两道）+ 顶口沿
+  const hoopMat = w.mat(new THREE.Color(c).multiplyScalar(0.72).getHex())
+  for (const hy of [0.3, 0.62, 0.91]) {
+    const hoop = new THREE.Mesh(torus(0.312, 0.013, 7, 24), hoopMat)
+    hoop.position.set(x, g + hy, z)
+    hoop.rotation.x = Math.PI / 2
+    hoop.castShadow = true
+    w.group.add(hoop)
+  }
+  // 内凹顶盖 + 注油口
+  const lid = new THREE.Mesh(cyl(0.285, 0.285, 0.025, 22), w.mat(0x3a3f44, 'metal'))
+  lid.position.set(x, g + 0.905, z)
+  w.group.add(lid)
+  const plug = new THREE.Mesh(cyl(0.045, 0.045, 0.03, 12), hoopMat)
+  plug.position.set(x + 0.16, g + 0.93, z)
+  w.group.add(plug)
+  w.col.addCyl(x, z, 0.34, g, g + 0.92)
 }

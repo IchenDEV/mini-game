@@ -66,7 +66,7 @@ export class Combat {
   grenades: Grenade[] = []
   fireZones: FireZone[] = []
   private decoys: Decoy[] = []
-  private nadeGeo = new THREE.SphereGeometry(0.11, 6, 5)
+  private nadeGeo = new THREE.SphereGeometry(0.11, 12, 9)
   private nadeMats: Record<NadeType, THREE.MeshLambertMaterial> = {
     frag: new THREE.MeshLambertMaterial({ color: 0x44513c }),
     smoke: new THREE.MeshLambertMaterial({ color: 0x8a9298 }),

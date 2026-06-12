@@ -5,12 +5,15 @@ import { RNG } from '../utils/rng'
 import { clamp, lerp, smoothstep, dist2D } from '../utils/math'
 import * as TEX from './textures'
 import { surface } from '../rendering/materials'
+import { pbr, pbrCloned, type PbrSetId } from '../rendering/pbrTextures'
+import { rockGeo, grassClumpGeo } from '../rendering/smoothGeo'
 import type { MapConfig } from './mapConfig'
 import type { BiomeDef } from './biome'
 import type { WeatherDef } from './weather'
 import { buildPoi, house, twoStoryHouse, carWreck, bridge } from './poi/poiTemplates'
 
 export type TexKind = 'plaster' | 'brick' | 'metal' | 'roof' | 'wood' | 'concrete' | 'bark' | 'leaves' | 'rooftiles' | 'leafLitter' | 'gravelPatch'
+/** 程序化纹理（alpha 面片 / 贴花仍走 Canvas 绘制） */
 const TEX_BUILDERS: Record<TexKind, () => THREE.Texture> = {
   plaster: TEX.plaster, brick: TEX.brick, metal: TEX.metalSiding,
   roof: TEX.roofMetal, wood: TEX.woodPlanks, concrete: TEX.concrete,
@@ -22,12 +25,15 @@ const TEX_METERS: Record<TexKind, number> = {
   plaster: 3, brick: 2.3, metal: 2.6, roof: 3, wood: 1.8, concrete: 3,
   bark: 2, leaves: 1, rooftiles: 2.4, leafLitter: 2, gravelPatch: 2,
 }
-/** 每类表面的 PBR 参数（建筑构件走 Standard 材质） */
-const TEX_PBR: Record<TexKind, [number, number]> = {
-  plaster: [0.94, 0], brick: [0.96, 0], metal: [0.5, 0.4],
-  roof: [0.55, 0.35], wood: [0.8, 0], concrete: [0.95, 0],
-  bark: [0.95, 0], leaves: [0.9, 0], rooftiles: [0.85, 0],
-  leafLitter: [0.95, 0], gravelPatch: [0.95, 0],
+/**
+ * 每类表面：[粗糙度, 金属度, PBR 纹理集, 着色模式]
+ * 着色模式：full=color 全乘（中性底图）soft=color 向白衰减（底图自带固有色）
+ */
+const TEX_PBR: Record<TexKind, [number, number, PbrSetId | null, 'full' | 'soft']> = {
+  plaster: [0.94, 0, 'plaster', 'full'], brick: [0.96, 0, 'brick', 'soft'], metal: [0.55, 0.28, 'metalSiding', 'soft'],
+  roof: [0.55, 0.35, 'paintedMetal', 'full'], wood: [0.8, 0, 'planks', 'full'], concrete: [0.95, 0, 'concrete', 'full'],
+  bark: [0.95, 0, 'bark', 'soft'], leaves: [0.9, 0, null, 'full'], rooftiles: [0.85, 0, 'roofTiles', 'soft'],
+  leafLitter: [0.95, 0, null, 'full'], gravelPatch: [0.95, 0, null, 'full'],
 }
 
 // ---------------- 程序化噪声 ----------------
@@ -270,18 +276,30 @@ export class World {
   tex(kind: TexKind): THREE.Texture {
     let t = this.texCache.get(kind)
     if (!t) {
-      t = TEX_BUILDERS[kind]()
+      // 优先用实拍 PBR 颜色贴图，无对应集合时回退程序化 Canvas
+      const set = TEX_PBR[kind][2]
+      t = set ? pbr(set).map : TEX_BUILDERS[kind]()
       this.texCache.set(kind, t)
     }
     return t
   }
 
-  /** 建筑/道具材质：按贴图类别套用 PBR 粗糙度与金属度（全局缓存） */
+  /** 建筑/道具材质：实拍 PBR 三贴图（颜色/法线/粗糙度）+ 平滑着色（全局缓存） */
   mat(color: number, kind: TexKind | null = null): THREE.MeshStandardMaterial {
-    const [rough, met] = kind ? TEX_PBR[kind] : [0.85, 0]
+    if (!kind) return surface({ color, roughness: 0.85, metalness: 0 })
+    const [rough, met, set, tintMode] = TEX_PBR[kind]
+    // 自带固有色的底图：着色向白衰减，避免色彩相乘过脏（金属板保留更多本色）
+    const tint = tintMode === 'soft'
+      ? new THREE.Color(color).lerp(new THREE.Color(0xffffff), kind === 'metal' ? 0.4 : 0.6).getHex()
+      : color
+    const maps = set ? pbr(set) : null
     return surface({
-      color, map: kind ? this.tex(kind) : undefined,
-      roughness: rough, metalness: met, flatShading: true,
+      color: tint,
+      map: this.tex(kind),
+      normalMap: maps?.normalMap ?? undefined,
+      roughnessMap: maps?.roughnessMap ?? undefined,
+      normalScale: 0.85,
+      roughness: rough, metalness: met,
     })
   }
 
@@ -446,18 +464,26 @@ export class World {
     // 桥
     for (const bx of cfg.bridges) bridge(this, bx)
 
-    // 大型岩石掩体（开阔地带）
+    // 大型岩石掩体（开阔地带）：平滑噪声岩 + 实拍岩石纹理
     const bigRocks = Math.round(this.half / 12)
+    const rockMaps = pbr('rock')
+    const bigRockMat = surface({
+      color: new THREE.Color(this.biome.gRock).lerp(new THREE.Color(0xffffff), 0.35).getHex(),
+      map: rockMaps.map, normalMap: rockMaps.normalMap, roughnessMap: rockMaps.roughnessMap,
+      normalScale: 1.0, roughness: 0.95, metalness: 0,
+    })
     for (let i = 0; i < bigRocks; i++) {
       const x = this.rng.range(-lim, lim), z = this.rng.range(-lim, lim)
       if (this.inPoi(x, z, 20) || this.nearRiver(x, z, 8)) continue
       const g = this.groundHeight(x, z)
       if (g < this.waterY + 1) continue
       const s = this.rng.range(1.6, this.biome.id === 'desert' ? 4.2 : 2.8)
-      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), this.mat(this.biome.gRock))
-      rock.position.set(x, g + s * 0.35, z)
-      rock.rotation.set(this.rng.range(0, 3), this.rng.range(0, 3), 0)
+      const rock = new THREE.Mesh(rockGeo(this.rng.int(1, 7), 2), bigRockMat)
+      rock.scale.set(s, s * this.rng.range(0.7, 0.95), s)
+      rock.position.set(x, g + s * 0.3, z)
+      rock.rotation.set(this.rng.range(-0.15, 0.15), this.rng.range(0, Math.PI * 2), this.rng.range(-0.15, 0.15))
       rock.castShadow = true
+      rock.receiveShadow = true
       this.group.add(rock)
       this.col.addCyl(x, z, s * 0.8, g, g + s * 1.1)
     }
@@ -576,17 +602,29 @@ export class World {
     const cRock = new THREE.Color(this.biome.gRock)
     const cRoad = new THREE.Color(this.biome.gRoad)
     const tmp = new THREE.Color()
-    const detail = this.biome.groundDetail()
-    detail.repeat.set(chunkSize / 5.0, chunkSize / 5.0)
-    const mat = new THREE.MeshLambertMaterial({ vertexColors: true, map: detail })
-    // 双尺度采样混合：再叠一层低频采样打散平铺感
+    // 地面实拍 PBR：草原/雨林用草地集，沙漠用沙地集（颜色由顶点色主导，底图提供细节与法线）
+    const groundSet: PbrSetId = this.biome.id === 'desert' ? 'sand' : 'grass'
+    const rep = chunkSize / 4.2
+    const gMaps = pbrCloned(groundSet, rep, rep)
+    // 底图色彩去饱和归一：保留明度细节，色相交给 biome 顶点色
+    const mat = new THREE.MeshStandardMaterial({
+      vertexColors: true, map: gMaps.map,
+      normalMap: gMaps.normalMap ?? undefined,
+      roughness: 1, metalness: 0,
+    })
+    mat.normalScale.set(0.7, 0.7)
+    // 双尺度采样混合：再叠一层低频采样打散平铺感；并把底图往中灰拉（vertexColor 调色为主）
     mat.onBeforeCompile = (sh) => {
       sh.fragmentShader = sh.fragmentShader.replace(
         '#include <map_fragment>',
         `#ifdef USE_MAP
           vec4 tex1 = texture2D( map, vMapUv );
           vec4 tex2 = texture2D( map, vMapUv * 0.1273 + vec2( 0.37, 0.71 ) );
-          diffuseColor *= mix( tex1, tex2, 0.42 );
+          vec4 texMix = mix( tex1, tex2, 0.42 );
+          float texLum = dot( texMix.rgb, vec3( 0.299, 0.587, 0.114 ) );
+          // 去饱和 65% 并归一亮度：避免底图固有色与 biome 顶点色相乘发脏
+          texMix.rgb = mix( texMix.rgb, vec3( texLum ), 0.65 ) * 1.55;
+          diffuseColor *= texMix;
         #endif`,
       )
     }
@@ -671,36 +709,45 @@ export class World {
 
   // ---------------- 植被（分块实例化，支持视锥剔除与草距裁剪） ----------------
 
-  /** 树干 + 枝杈合并几何（原点在树根，贴树皮） */
+  /** 树干 + 枝杈合并几何（原点在树根，贴树皮；高细分平滑 + 根部外扩） */
   private trunkGeometry(form: 'broad' | 'dead' | 'tall'): THREE.BufferGeometry {
     const parts: THREE.BufferGeometry[] = []
     const branch = (r0: number, r1: number, len: number, y: number, tilt: number, yaw: number) => {
-      const bg = new THREE.CylinderGeometry(r0, r1, len, 5)
+      const bg = new THREE.CylinderGeometry(r0, r1, len, 10)
       bg.translate(0, len / 2, 0)
       bg.rotateZ(tilt)
       bg.rotateY(yaw)
       bg.translate(0, y, 0)
       parts.push(bg)
     }
-    if (form === 'tall') {
-      const t = new THREE.CylinderGeometry(0.2, 0.5, 6.8, 7)
-      t.translate(0, 3.4, 0)
+    // 主干带根部外扩剖面：底部喇叭口让树"长在土里"而不是插在地上
+    const trunk = (rTop: number, rBase: number, h: number) => {
+      const t = new THREE.CylinderGeometry(rTop, rBase, h, 16, 6)
+      t.translate(0, h / 2, 0)
+      const pos = t.getAttribute('position') as THREE.BufferAttribute
+      for (let i = 0; i < pos.count; i++) {
+        const y = pos.getY(i)
+        const k = Math.max(0, 1 - y / (h * 0.16))
+        const flare = 1 + k * k * 0.55
+        pos.setX(i, pos.getX(i) * flare)
+        pos.setZ(i, pos.getZ(i) * flare)
+      }
+      t.computeVertexNormals()
       parts.push(t)
+    }
+    if (form === 'tall') {
+      trunk(0.2, 0.5, 6.8)
       branch(0.06, 0.13, 2.1, 4.8, 1.0, 0.4)
       branch(0.06, 0.12, 1.9, 5.5, -0.95, 2.5)
       branch(0.05, 0.1, 1.7, 5.9, 1.05, 4.3)
     } else if (form === 'dead') {
-      const t = new THREE.CylinderGeometry(0.12, 0.34, 4.4, 6)
-      t.translate(0, 2.2, 0)
-      parts.push(t)
+      trunk(0.12, 0.34, 4.4)
       branch(0.03, 0.09, 2.0, 2.8, 0.95, 0.3)
       branch(0.03, 0.08, 1.7, 3.4, -1.15, 2.2)
       branch(0.02, 0.07, 1.5, 3.8, 0.8, 4.0)
       branch(0.02, 0.05, 1.1, 4.2, -0.55, 5.4)
     } else {
-      const t = new THREE.CylinderGeometry(0.18, 0.44, 4.0, 7)
-      t.translate(0, 2.0, 0)
-      parts.push(t)
+      trunk(0.18, 0.44, 4.0)
       branch(0.07, 0.13, 1.8, 2.7, 0.92, 0.6)
       branch(0.06, 0.12, 1.6, 3.2, -1.0, 2.8)
       branch(0.05, 0.1, 1.4, 3.6, 1.05, 4.6)
@@ -834,11 +881,14 @@ export class World {
     }
     const trunkGeo = this.trunkGeometry(form)
     const leavesTex = this.tex('leaves')
-    const trunkMat = new THREE.MeshLambertMaterial({
-      map: this.tex('bark'),
-      color: new THREE.Color(b.trunkColor).multiplyScalar(1.85),
+    const barkMaps = pbr('bark')
+    const trunkMat = new THREE.MeshStandardMaterial({
+      map: barkMaps.map,
+      normalMap: barkMaps.normalMap ?? undefined,
+      roughness: 0.95, metalness: 0,
+      color: new THREE.Color(b.trunkColor).multiplyScalar(1.6).lerp(new THREE.Color(0xffffff), 0.25),
       // 背光面微抬：树荫下树干不死黑
-      emissive: new THREE.Color(b.trunkColor).multiplyScalar(0.22),
+      emissive: new THREE.Color(b.trunkColor).multiplyScalar(0.18),
     })
     const canGeo = this.canopyGeometry(form)
     const canMat = new THREE.MeshLambertMaterial({
@@ -1018,14 +1068,12 @@ export class World {
       this.group.add(bm)
     }
 
-    // ---- 草丛（动态：只在玩家周围生成，见 updateGrass；带风摆 shader）----
+    // ---- 草丛（动态：只在玩家周围生成，见 updateGrass；真 3D 草叶簇 + 风摆 shader）----
     if (b.grassCount > 0) {
-      const bladeTex = TEX.grassBlades()
       const grassMat = new THREE.MeshLambertMaterial({
-        map: bladeTex, alphaTest: 0.38, side: THREE.DoubleSide,
-        // 贴图自带绿色，色调只轻度往 biome 草色偏移避免过暗
-        color: new THREE.Color(b.grassTint).lerp(new THREE.Color(0xffffff), 0.55),
-        emissive: 0x141b0c, emissiveMap: bladeTex,
+        side: THREE.DoubleSide, vertexColors: true,
+        color: new THREE.Color(b.grassTint).lerp(new THREE.Color(0xffffff), 0.3),
+        emissive: 0x121808,
       })
       const windT = this.windT
       grassMat.onBeforeCompile = (sh) => {
@@ -1039,34 +1087,36 @@ export class World {
             float gust = 0.6 + 0.4 * sin(uWindT * 0.5 + gwp.x * 0.013 + gwp.y * 0.017);
             float gsw = sin(uWindT * 1.9 + gwp.x * 0.21 + gwp.y * 0.17)
                       + 0.45 * sin(uWindT * 3.6 + gwp.x * 0.07 - gwp.y * 0.11);
-            float gbend = smoothstep(0.04, 0.85, position.y);
-            transformed.x += gsw * gust * 0.078 * gbend;
-            transformed.z += gsw * gust * 0.06 * gbend;
+            float gbend = smoothstep(0.02, 0.36, position.y);
+            transformed.x += gsw * gust * 0.045 * gbend;
+            transformed.z += gsw * gust * 0.035 * gbend;
           #endif`,
         )
       }
-      const grassGeo = new THREE.PlaneGeometry(1.35, 0.85)
-      grassGeo.translate(0, 0.40, 0)
-      // 圆形覆盖区 ≈ π·R² 个 cell
+      // 两套不同 seed 的草簇几何交替使用，破除重复感
+      const grassGeo1 = grassClumpGeo(this.cfg.seed ^ 0x47a3, 6, 0.5)
+      const grassGeo2 = grassClumpGeo(this.cfg.seed ^ 0x91c7, 7, 0.44)
+      // 圆形覆盖区 ≈ π·R² 个 cell；真几何密度减半（单簇即有体积，无需交叉面片×2）
       const cells = Math.max(1, Math.round(Math.PI * this.grassR * this.grassR))
-      this.grassPerCell = Math.ceil(b.grassCount / cells)
+      this.grassPerCell = Math.ceil(b.grassCount / cells / 2)
       this.grassCap = this.grassPerCell * (cells + this.grassR * 4)
-      this.grass1 = new THREE.InstancedMesh(grassGeo, grassMat, this.grassCap)
-      this.grass2 = new THREE.InstancedMesh(grassGeo, grassMat, this.grassCap)
+      this.grass1 = new THREE.InstancedMesh(grassGeo1, grassMat, this.grassCap)
+      this.grass2 = new THREE.InstancedMesh(grassGeo2, grassMat, this.grassCap)
       for (const gm of [this.grass1, this.grass2]) {
         gm.count = 0
         gm.frustumCulled = false
         gm.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+        // 预创建 instanceColor，保证材质首次编译就带 USE_INSTANCING_COLOR
+        gm.setColorAt(0, new THREE.Color(1, 1, 1))
         this.group.add(gm)
       }
 
-      // ---- 近景 hero 草叶层：玩家脚边的真草叶（4 段可弯 + 玩家压弯）----
-      const heroTex = TEX.grassBladeClump()
+      // ---- 近景 hero 草叶层：真 3D 弯曲草叶簇（顶点色渐变 + 风摆 + 玩家压弯）----
       const heroMat = new THREE.MeshLambertMaterial({
-        map: heroTex, alphaTest: 0.45, side: THREE.DoubleSide,
-        color: new THREE.Color(b.grassTint).lerp(new THREE.Color(0xffffff), 0.55),
-        // 叶面透光补偿：背光面不死黑（与中距草同款做法）
-        emissive: 0x222b12, emissiveMap: heroTex,
+        side: THREE.DoubleSide, vertexColors: true,
+        color: new THREE.Color(b.grassTint).lerp(new THREE.Color(0xffffff), 0.3),
+        // 叶面透光补偿：背光面不死黑
+        emissive: 0x121808,
       })
       const playerPos = this.playerPos
       heroMat.onBeforeCompile = (sh) => {
@@ -1077,13 +1127,13 @@ export class World {
           `#include <begin_vertex>
           #ifdef USE_INSTANCING
             vec2 hwp = vec2(instanceMatrix[3][0], instanceMatrix[3][2]);
-            float hBend = smoothstep(0.02, 0.95, position.y);
+            float hBend = smoothstep(0.01, 0.34, position.y);
             // 风：阵风包络 + 双频摆，顶端弯曲大、根部不动
             float hGust = 0.55 + 0.45 * sin(uWindT * 0.55 + hwp.x * 0.011 + hwp.y * 0.014);
             float hSw = sin(uWindT * 2.2 + hwp.x * 0.31 + hwp.y * 0.23)
                       + 0.5 * sin(uWindT * 4.4 + hwp.x * 0.12 - hwp.y * 0.09);
-            transformed.x += hSw * hGust * 0.085 * hBend * hBend;
-            transformed.z += hSw * hGust * 0.066 * hBend * hBend;
+            transformed.x += hSw * hGust * 0.05 * hBend * hBend;
+            transformed.z += hSw * hGust * 0.038 * hBend * hBend;
             // 玩家压弯：脚边草向外倒伏并下压（世界方向转回实例局部空间）
             vec3 hWorld = vec3(instanceMatrix * vec4(transformed, 1.0));
             vec2 toP = hWorld.xz - uPlayer.xz;
@@ -1102,8 +1152,7 @@ export class World {
           #endif`,
         )
       }
-      const heroGeo = new THREE.PlaneGeometry(0.62, 0.92, 1, 4)
-      heroGeo.translate(0, 0.44, 0)
+      const heroGeo = grassClumpGeo(this.cfg.seed ^ 0x5eed, 9, 0.42)
       const heroCells = Math.max(1, Math.round(Math.PI * this.heroR * this.heroR))
       // hero 密度按 biome 草量缩放：草原 ~52/cell
       this.heroPerCell = Math.max(14, Math.round(b.grassCount / 210))
@@ -1112,12 +1161,17 @@ export class World {
       this.heroGrass.count = 0
       this.heroGrass.frustumCulled = false
       this.heroGrass.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+      this.heroGrass.setColorAt(0, new THREE.Color(1, 1, 1))
       this.group.add(this.heroGrass)
     }
 
-    // ---- 散石（16 桶）----
-    const rockGeo = new THREE.DodecahedronGeometry(1, 0)
-    const rockMat = new THREE.MeshLambertMaterial({ flatShading: true })
+    // ---- 散石（16 桶）：平滑噪声岩 + 岩石法线 ----
+    const scatterRockGeo = rockGeo(3, 1)
+    const rockMaps2 = pbr('rock')
+    const rockMat = new THREE.MeshStandardMaterial({
+      map: rockMaps2.map, normalMap: rockMaps2.normalMap ?? undefined,
+      roughness: 0.95, metalness: 0,
+    })
     const rockBuckets: TreeInst[][] = Array.from({ length: CH * CH }, () => [])
     let ri = 0, rtries = 0
     while (ri < b.rockCount && rtries++ < b.rockCount * 6) {
@@ -1129,13 +1183,13 @@ export class World {
       vp.set(x, h + s * 0.3, z)
       q.setFromAxisAngle(up, this.rng.range(0, Math.PI * 2))
       vs.set(s, s * this.rng.range(0.5, 0.9), s)
-      rockBuckets[cidx(x, z)].push({ m: m4.clone().compose(vp, q, vs), c: new THREE.Color(this.rng.pick(b.rockColors)) })
+      rockBuckets[cidx(x, z)].push({ m: m4.clone().compose(vp, q, vs), c: new THREE.Color(this.rng.pick(b.rockColors)).lerp(new THREE.Color(0xffffff), 0.4) })
       if (s > 1.0) this.col.addCyl(x, z, s * 0.75, h, h + s * 0.8)
       ri++
     }
     for (const bucket of rockBuckets) {
       if (!bucket.length) continue
-      const rm = new THREE.InstancedMesh(rockGeo, rockMat, bucket.length)
+      const rm = new THREE.InstancedMesh(scatterRockGeo, rockMat, bucket.length)
       bucket.forEach((c, i) => { rm.setMatrixAt(i, c.m); rm.setColorAt(i, c.c) })
       rm.castShadow = true
       rm.computeBoundingSphere()
@@ -1144,7 +1198,7 @@ export class World {
 
     // ---- 树根过渡：部分树根旁倒伏断枝 + 小石（树不再"直插地面"）----
     if (this.treeAOPts.length) {
-      const twigGeo = new THREE.CylinderGeometry(0.045, 0.085, 1, 5)
+      const twigGeo = new THREE.CylinderGeometry(0.045, 0.085, 1, 8)
       twigGeo.rotateZ(Math.PI / 2)
       const twigMat = new THREE.MeshLambertMaterial({ map: this.tex('bark'), color: new THREE.Color(b.trunkColor).multiplyScalar(1.5) })
       const picks = this.treeAOPts.filter(() => this.rng.chance(0.14))
@@ -1239,15 +1293,14 @@ export class World {
     const cap = this.grassCap
     const m4 = new THREE.Matrix4()
     const q = new THREE.Quaternion()
-    const q2 = new THREE.Quaternion()
     const vp = new THREE.Vector3()
     const vs = new THREE.Vector3()
     const up = new THREE.Vector3(0, 1, 0)
     const tint = new THREE.Color()
-    let n = 0
+    let n1 = 0, n2 = 0
 
-    for (let dz = -R; dz <= R && n < cap; dz++) {
-      for (let dx = -R; dx <= R && n < cap; dx++) {
+    for (let dz = -R; dz <= R && (n1 < cap || n2 < cap); dz++) {
+      for (let dx = -R; dx <= R && (n1 < cap || n2 < cap); dx++) {
         if (dx * dx + dz * dz > R * R + 1) continue
         const gx = ccx + dx, gz = ccz + dz
         // mulberry32：以 cell 坐标 + 地图种子为种子的确定性随机
@@ -1258,9 +1311,9 @@ export class World {
           t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
           return ((t ^ (t >>> 14)) >>> 0) / 4294967296
         }
-        for (let k = 0; k < this.grassPerCell && n < cap; k++) {
+        for (let k = 0; k < this.grassPerCell * 2; k++) {
           const x = (gx + rnd()) * cell, z = (gz + rnd()) * cell
-          const yawR = rnd() * Math.PI
+          const yawR = rnd() * Math.PI * 2
           const sc = 0.7 + rnd() * 0.8
           const sy = 0.8 + rnd() * 0.45
           const hueJ = rnd() * 0.07 - 0.03
@@ -1269,20 +1322,27 @@ export class World {
           const h = this.groundHeight(x, z)
           if (h < this.waterY + 0.6) continue
           if (this.roadDist(x, z) < 4.5 || this.inPoi(x, z, 1)) continue
+          // 两套几何交替分配，破除重复
+          const useG2 = (k & 1) === 1
+          if (useG2 ? n2 >= cap : n1 >= cap) continue
           vp.set(x, h, z)
           vs.set(sc, sc * sy, sc)
           q.setFromAxisAngle(up, yawR)
-          q2.setFromAxisAngle(up, yawR + Math.PI / 2)
           tint.setHSL(b.grassHue + hueJ, b.grassSat * 0.82, Math.min(0.68, b.grassLight + 0.09 + lightJ))
-          g1.setMatrixAt(n, m4.compose(vp, q, vs))
-          g1.setColorAt(n, tint)
-          g2.setMatrixAt(n, m4.compose(vp, q2, vs))
-          g2.setColorAt(n, tint)
-          n++
+          m4.compose(vp, q, vs)
+          if (useG2) {
+            g2.setMatrixAt(n2, m4)
+            g2.setColorAt(n2, tint)
+            n2++
+          } else {
+            g1.setMatrixAt(n1, m4)
+            g1.setColorAt(n1, tint)
+            n1++
+          }
         }
       }
     }
-    g1.count = n; g2.count = n
+    g1.count = n1; g2.count = n2
     g1.instanceMatrix.needsUpdate = true
     g2.instanceMatrix.needsUpdate = true
     if (g1.instanceColor) g1.instanceColor.needsUpdate = true
@@ -1352,7 +1412,7 @@ export class World {
           vp.set(x, h - 0.02, z)
           vs.set(sc, sc * sy, sc)
           q.setFromAxisAngle(up, yawR)
-          tint.setHSL(b.grassHue + hueJ, b.grassSat * 0.85, Math.min(0.66, b.grassLight + 0.07 + lightJ))
+          tint.setHSL(b.grassHue + hueJ, b.grassSat * 0.85, Math.min(0.68, b.grassLight + 0.1 + lightJ))
           hm.setMatrixAt(n, m4.compose(vp, q, vs))
           hm.setColorAt(n, tint)
           n++

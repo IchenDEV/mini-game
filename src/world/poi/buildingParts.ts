@@ -12,6 +12,18 @@ export type LocalBox = (
   color: number, collide?: boolean, tk?: TexKind | null,
 ) => THREE.Mesh
 
+/** 共享窗玻璃材质：深蓝灰 + 高光反射（模拟天空映照），替代死黑盒子 */
+let _glassMat: THREE.MeshPhongMaterial | null = null
+function glassMaterial(): THREE.MeshPhongMaterial {
+  if (!_glassMat) {
+    _glassMat = new THREE.MeshPhongMaterial({
+      color: 0x42566a, emissive: 0x16222e,
+      specular: 0xcfe2f2, shininess: 180,
+    })
+  }
+  return _glassMat
+}
+
 /** 门框：两侧门柱 + 门楣（凸出墙面，不参与碰撞） */
 export function doorFrame(B: LocalBox, lx: number, g: number, lz: number, doorW: number, doorH: number, c = 0x8a7a64) {
   B(0.16, doorH + 0.08, 0.4, lx - doorW / 2 - 0.06, g, lz, c, false, 'wood')
@@ -30,12 +42,12 @@ export function framedWindow(B: LocalBox, axis: 'x' | 'z', along: number, g: num
   const si = lp - sign * 0.1
   if (axis === 'z') {
     B(1.5, 1.18, 0.07, along, g + 1.11, f, frameC, false)
-    B(1.3, 1.0, 0.1, along, g + 1.2, gl, 0x222a31, false)
+    B(1.3, 1.0, 0.1, along, g + 1.2, gl, 0x222a31, false).material = glassMaterial()
     B(0.06, 1.0, 0.12, along, g + 1.2, mu, frameC, false)
     B(1.62, 0.1, 0.26, along, g + 1.0, si, frameC, false)
   } else {
     B(0.07, 1.18, 1.5, f, g + 1.11, along, frameC, false)
-    B(0.1, 1.0, 1.3, gl, g + 1.2, along, 0x222a31, false)
+    B(0.1, 1.0, 1.3, gl, g + 1.2, along, 0x222a31, false).material = glassMaterial()
     B(0.12, 1.0, 0.06, mu, g + 1.2, along, frameC, false)
     B(0.26, 0.1, 1.62, si, g + 1.0, along, frameC, false)
   }

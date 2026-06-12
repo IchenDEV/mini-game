@@ -21,6 +21,7 @@ import { MAPS, MapConfig } from '../world/mapConfig'
 import { WorldEvents } from '../world/events/worldEvents'
 import { pickWeather, WeatherFX } from '../world/weather'
 import { TPCamera } from './camera'
+import { Viewmodel } from '../rendering/viewmodel'
 import { RNG } from '../utils/rng'
 import { clamp } from '../utils/math'
 import type { Ctx } from './ctx'
@@ -31,6 +32,7 @@ export class Game {
   private ctx: Ctx
   private cfg: MapConfig
   private cam = new TPCamera()
+  private vm = new Viewmodel()
   private invUI = new InventoryUI()
   private corpses: { ch: Character; t: number }[] = []
   private started = false
@@ -78,7 +80,11 @@ export class Game {
     this.renderer = renderer
 
     // 环境氛围由生物群系 + 本局天气共同决定
-    const weather = pickWeather(biome, new URLSearchParams(location.search).get('weather'))
+    const urlQ = new URLSearchParams(location.search)
+    // 调试参数：?bots=N 覆盖 AI 数量（验证场景用）
+    const botsOverride = urlQ.get('bots')
+    if (botsOverride !== null) cfg.botCount = Math.max(0, parseInt(botsOverride) || 0)
+    const weather = pickWeather(biome, urlQ.get('weather'))
     this.windMul = weather.windMul
     const fogColor = new THREE.Color(biome.fogColor).lerp(new THREE.Color(weather.fogTint), weather.fogTintAmt)
     const scene = new THREE.Scene()
@@ -87,6 +93,9 @@ export class Game {
 
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, cfg.half * 2.6)
     camera.position.set(0, cfg.planeAlt + 10, 0)
+    // 相机入场景图：第一人称 viewmodel 挂相机下渲染
+    scene.add(camera)
+    this.vm.attach(camera)
 
     const lights = createLighting(scene, biome, quality)
     lights.sun.intensity *= weather.sunMul
@@ -343,6 +352,7 @@ export class Game {
     this.ctx.world.updateGrass(p.x, p.z)
 
     this.cam.update(dt, ctx)
+    this.vm.update(dt, ctx, this.cam.firstPerson)
     ctx.fx.update(dt)
     ctx.loot.update(dt, ctx.time)
     ctx.sfx.setListener(ctx.camera.position, ctx.player.yaw)

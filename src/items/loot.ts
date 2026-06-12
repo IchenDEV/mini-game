@@ -259,7 +259,7 @@ export class LootSystem {
       const cls = gi.weapon!.def.cls
       const len = cls === 'SR' ? 0.8 : cls === 'PISTOL' ? 0.35 : cls === 'SMG' ? 0.5 : 0.66
       add(new THREE.BoxGeometry(0.09, 0.11, len * 0.62), 0x33383d, 0, 0, -len * 0.12)
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, len * 0.5, 6), lam(0x4a5158))
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.024, len * 0.5, 10), lam(0x4a5158))
       barrel.rotation.x = Math.PI / 2
       barrel.position.set(0, 0.01, len * 0.3)
       icon.add(barrel)
@@ -280,13 +280,13 @@ export class LootSystem {
         add(new THREE.BoxGeometry(0.05, 0.05, 0.16), 0xc23b3b, 0, 0.11, 0)
         break
       case 'boost':
-        add(new THREE.CylinderGeometry(0.08, 0.08, 0.26, 8), def.id === 'drink' ? 0x3fa8c9 : 0xd8d2c2)
+        add(new THREE.CylinderGeometry(0.08, 0.08, 0.26, 16), def.id === 'drink' ? 0x3fa8c9 : 0xd8d2c2)
         break
       case 'armor':
         add(new THREE.BoxGeometry(0.34, 0.38, 0.16), [0, 0x7a8a99, 0x46698c, 0x2c3d52][def.level ?? 1])
         break
       case 'helmet':
-        add(new THREE.SphereGeometry(0.2, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), [0, 0xb0a890, 0x5d7a4a, 0x32404c][def.level ?? 1])
+        add(new THREE.SphereGeometry(0.2, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), [0, 0xb0a890, 0x5d7a4a, 0x32404c][def.level ?? 1])
         break
       case 'bag':
         add(new THREE.BoxGeometry(0.3, 0.36, 0.18), 0x6e5a3c)
@@ -294,7 +294,7 @@ export class LootSystem {
         break
       case 'attach':
         if (def.attachSlot === 'scope') {
-          const c = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 8), lam(0x2e3338))
+          const c = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.3, 14), lam(0x2e3338))
           c.rotation.x = Math.PI / 2
           icon.add(c)
         } else {
@@ -303,10 +303,10 @@ export class LootSystem {
         break
       case 'nade':
         if (def.id === 'molotov') {
-          add(new THREE.CylinderGeometry(0.07, 0.09, 0.24, 7), 0xb35a22)
+          add(new THREE.CylinderGeometry(0.07, 0.09, 0.24, 14), 0xb35a22)
           add(new THREE.BoxGeometry(0.04, 0.1, 0.04), 0xe8e2d0, 0, 0.16, 0)
         } else {
-          add(new THREE.SphereGeometry(0.12, 7, 6),
+          add(new THREE.SphereGeometry(0.12, 14, 10),
             def.id === 'frag' ? 0x44513c : def.id === 'smoke' ? 0x8a9298 : def.id === 'decoy' ? 0x4a6a8a : 0xd8d8d0)
           add(new THREE.BoxGeometry(0.05, 0.08, 0.05), 0x6a6a62, 0, 0.13, 0)
         }
@@ -316,7 +316,7 @@ export class LootSystem {
         add(new THREE.BoxGeometry(0.18, 0.05, 0.06), 0xd8d2c2, 0, 0.11, 0)
         break
       case 'meleeWeapon': {
-        const pan = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.035, 10), lam(0x4a5158))
+        const pan = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.035, 20), lam(0x4a5158))
         pan.rotation.z = 0.5
         icon.add(pan)
         add(new THREE.BoxGeometry(0.05, 0.04, 0.22), 0x2e3338, 0, 0, 0.22)
@@ -325,7 +325,7 @@ export class LootSystem {
       case 'fuel':
         add(new THREE.BoxGeometry(0.26, 0.32, 0.16), 0xb33a30)
         add(new THREE.BoxGeometry(0.14, 0.05, 0.1), 0x8a2c24, 0, 0.18, 0)
-        add(new THREE.CylinderGeometry(0.03, 0.03, 0.08, 6), 0x3c4045, 0.09, 0.2, 0)
+        add(new THREE.CylinderGeometry(0.03, 0.03, 0.08, 10), 0x3c4045, 0.09, 0.2, 0)
         break
       default:
         add(new THREE.BoxGeometry(0.2, 0.2, 0.2), 0x8a8a8a)

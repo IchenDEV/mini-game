@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { World, WALL_H, type TexKind } from '../world'
 import type { PoiDef } from '../mapConfig'
 import { surface } from '../../rendering/materials'
+import { rockGeo } from '../../rendering/smoothGeo'
 import { doorFrame, framedWindow, cornice, drainPipe, acUnit, sandbagLine, fenceRun, brokenWallTop, stairRun, railing } from './buildingParts'
 import { table, chair, cabinet, shelfRack, mattress, barrel } from '../props/props'
 
@@ -427,16 +428,16 @@ export function barn(w: World, cx: number, cz: number, rot: number, tier: number
 
 export function silo(w: World, cx: number, cz: number) {
   const g = w.groundHeight(cx, cz)
-  const geo = new THREE.CylinderGeometry(2.4, 2.4, 8, 10)
+  const geo = new THREE.CylinderGeometry(2.4, 2.4, 8, 28)
   const siloTex = w.tex('metal').clone()
   siloTex.repeat.set(6, 3)
   siloTex.needsUpdate = true
-  const siloMat = surface({ color: 0x9aa0a6, map: siloTex, roughness: 0.5, metalness: 0.4, flatShading: true })
+  const siloMat = surface({ color: 0x9aa0a6, map: siloTex, roughness: 0.5, metalness: 0.4 })
   const mesh = new THREE.Mesh(geo, siloMat)
   mesh.position.set(cx, g + 4, cz)
   mesh.castShadow = true
   w.group.add(mesh)
-  const cap = new THREE.Mesh(new THREE.ConeGeometry(2.5, 1.6, 10), w.mat(0x7a8086))
+  const cap = new THREE.Mesh(new THREE.ConeGeometry(2.5, 1.6, 28), w.mat(0x7a8086))
   cap.position.set(cx, g + 8.8, cz)
   cap.castShadow = true
   w.group.add(cap)
@@ -451,7 +452,7 @@ export function carWreck(w: World, cx: number, cz: number, alongX: boolean) {
   w.box(ww, 0.9, d, cx, g + 0.35, cz, bodyC)
   const cw = alongX ? 2.1 : 1.6, cd = alongX ? 1.6 : 2.1
   w.box(cw, 0.65, cd, cx, g + 1.25, cz, bodyC, false)
-  const wg = new THREE.CylinderGeometry(0.36, 0.36, 0.3, 8)
+  const wg = new THREE.CylinderGeometry(0.36, 0.36, 0.3, 18)
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
     const wheel = new THREE.Mesh(wg, w.mat(0x1d2125))
     wheel.rotation.z = alongX ? 0 : Math.PI / 2
@@ -472,11 +473,22 @@ export function gasStation(w: World, cx: number, cz: number, rot: number, tier: 
   for (const [lx, lz] of [[-5, -3], [5, -3], [-5, 3], [5, 3]]) {
     B(0.45, 4.6, 0.45, lx, g, lz, 0x8d9296, true, 'concrete')
   }
+  // 顶棚：板 + 四周白色封边带 + 底面衬板
   B(14, 0.4, 9, 0, g + 4.6, 0, 0xb8483a, true, 'roof')
+  B(14.3, 0.55, 0.22, 0, g + 4.52, 4.55, 0xe6e1d5, false)
+  B(14.3, 0.55, 0.22, 0, g + 4.52, -4.55, 0xe6e1d5, false)
+  B(0.22, 0.55, 9.2, 7.1, g + 4.52, 0, 0xe6e1d5, false)
+  B(0.22, 0.55, 9.2, -7.1, g + 4.52, 0, 0xe6e1d5, false)
+  B(13.6, 0.05, 8.6, 0, g + 4.57, 0, 0xcfd3d6, false)
   B(13.9, 0.06, 8.9, 0, g + 0.02, 0, 0x8c9094, false, 'concrete')
+  // 油泵岛：底座 + 泵体 + 显示面板 + 侧挂软管
   for (const lx of [-2.5, 2.5]) {
-    B(0.9, 1.5, 0.6, lx, g, 0, 0xb8483a, true, 'metal')
-    B(1.1, 0.12, 0.8, lx, g + 1.5, 0, 0x8d9296, false)
+    B(1.5, 0.14, 1.0, lx, g, 0, 0x9aa0a4, false, 'concrete')
+    B(0.9, 1.5, 0.6, lx, g + 0.14, 0, 0xb8483a, true, 'metal')
+    B(0.66, 0.42, 0.04, lx, g + 1.0, 0.31, 0xd8dde0, false)
+    B(0.66, 0.3, 0.04, lx, g + 0.5, 0.31, 0x32383c, false)
+    B(0.08, 0.55, 0.08, lx + 0.38, g + 0.75, 0.12, 0x26292c, false)
+    B(1.1, 0.12, 0.8, lx, g + 1.64, 0, 0x8d9296, false)
   }
   const shopX = 12
   B(7, WALL_H, 5, shopX, g, 0, w.rng.pick(w.biome.houseWalls), true, w.pickWallTex())
@@ -544,7 +556,7 @@ export function camp(w: World, cx: number, cz: number, r: number, tier: number) 
     w.lootPoints.push({ x: x + Math.cos(a) * 2.4, y: w.groundHeight(x + Math.cos(a) * 2.4, z + Math.sin(a) * 2.4) + 0.12, z: z + Math.sin(a) * 2.4, tier })
   }
   const g0 = w.groundHeight(cx, cz)
-  const fire = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 0.25, 8), w.mat(0x2d2a26))
+  const fire = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.1, 0.25, 18), w.mat(0x2d2a26))
   fire.position.set(cx, g0 + 0.12, cz)
   w.group.add(fire)
   for (let i = 0; i < 3; i++) {
@@ -772,7 +784,7 @@ export function radar(w: World, cx: number, cz: number, tier: number) {
   const tg = w.groundHeight(tx, tz)
   const towerH = 12
   for (const [sx, sz] of [[-2.2, -2.2], [2.2, -2.2], [-2.2, 2.2], [2.2, 2.2]]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, towerH, 6), w.mat(0x70787e, 'metal'))
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, towerH, 14), w.mat(0x70787e, 'metal'))
     leg.position.set(tx + sx * 0.55, tg + towerH / 2, tz + sz * 0.55)
     leg.rotation.x = sz * 0.045
     leg.rotation.z = -sx * 0.045
@@ -788,12 +800,12 @@ export function radar(w: World, cx: number, cz: number, tier: number) {
   // 碟形天线（开口圆锥 + 馈源杆）
   const dishGrp = new THREE.Group()
   const dish = new THREE.Mesh(
-    new THREE.CylinderGeometry(2.6, 0.5, 1.3, 12, 1, true),
-    surface({ color: 0xd5d9dc, roughness: 0.4, metalness: 0.45, side: THREE.DoubleSide, flatShading: true }),
+    new THREE.CylinderGeometry(2.6, 0.5, 1.3, 30, 1, true),
+    surface({ color: 0xd5d9dc, roughness: 0.4, metalness: 0.45, side: THREE.DoubleSide }),
   )
   dish.castShadow = true
   dishGrp.add(dish)
-  const feed = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 5), w.mat(0x4a5158))
+  const feed = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 8), w.mat(0x4a5158))
   feed.position.y = 1.4
   dishGrp.add(feed)
   dishGrp.position.set(tx, tg + towerH + 1.5, tz)
@@ -840,7 +852,7 @@ export function bunker(w: World, cx: number, cz: number, tier: number) {
   B(bw + 1.2, 0.55, bd + 1.2, 0, g + h, 0, 0x6e7479, true, 'concrete')
   B(bw + 0.4, 0.5, bd + 0.4, 0, g + h + 0.55, 0, w.biome.gBase, false)
   for (const [vx, vz] of [[-3, -2], [3, 1.5]]) {
-    const vent = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.1, 7), w.mat(0x5d6a74, 'metal'))
+    const vent = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.1, 14), w.mat(0x5d6a74, 'metal'))
     vent.position.set(cx + vx, g + h + 1.4, cz + vz)
     vent.castShadow = true
     w.group.add(vent)
@@ -886,23 +898,24 @@ export function crashsite(w: World, cx: number, cz: number, tier: number) {
   for (let i = 0; i < 3; i++) {
     const t = -14 - i * 7
     const px = cx + dx * t, pz = cz + dz * t
-    const mound = new THREE.Mesh(new THREE.DodecahedronGeometry(w.rng.range(0.8, 1.4), 0), w.mat(0x4a4438))
+    const mound = new THREE.Mesh(rockGeo(40 + i, 1, 0.7), w.mat(0x4a4438))
+    mound.scale.setScalar(w.rng.range(0.8, 1.4))
     mound.position.set(px, w.groundHeight(px, pz) + 0.3, pz)
     mound.rotation.set(w.rng.range(0, 3), w.rng.range(0, 3), 0)
     w.group.add(mound)
   }
   // 主机身：横倒圆柱 + 断口环 + 尾段分离
   const hullGrp = new THREE.Group()
-  const hull = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.9, 10, 12, 1, true), surface({ color: hullC, roughness: 0.55, metalness: 0.5, side: THREE.DoubleSide, flatShading: true }))
+  const hull = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.9, 10, 26, 1, true), surface({ color: hullC, roughness: 0.55, metalness: 0.5, side: THREE.DoubleSide }))
   hull.rotation.z = Math.PI / 2
   hull.castShadow = true
   hullGrp.add(hull)
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.7, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2), surface({ color: hullC, roughness: 0.55, metalness: 0.5, flatShading: true }))
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.7, 22, 14, 0, Math.PI * 2, 0, Math.PI / 2), surface({ color: hullC, roughness: 0.55, metalness: 0.5 }))
   nose.rotation.z = -Math.PI / 2
   nose.position.x = 5
   nose.castShadow = true
   hullGrp.add(nose)
-  const burnt = new THREE.Mesh(new THREE.CylinderGeometry(1.75, 1.75, 3.4, 12, 1, true), surface({ color: burntC, roughness: 0.95, side: THREE.DoubleSide }))
+  const burnt = new THREE.Mesh(new THREE.CylinderGeometry(1.75, 1.75, 3.4, 26, 1, true), surface({ color: burntC, roughness: 0.95, side: THREE.DoubleSide }))
   burnt.rotation.z = Math.PI / 2
   burnt.position.x = -3.6
   hullGrp.add(burnt)
@@ -913,7 +926,7 @@ export function crashsite(w: World, cx: number, cz: number, tier: number) {
   w.col.addBox(cx - 5.5, g, cz - 2, cx + 5.5, g + 3.2, cz + 2)
   // 尾段（错位甩出）
   const tailGrp = new THREE.Group()
-  const tail = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.55, 5, 10, 1, true), surface({ color: hullC, roughness: 0.6, metalness: 0.45, side: THREE.DoubleSide, flatShading: true }))
+  const tail = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.55, 5, 22, 1, true), surface({ color: hullC, roughness: 0.6, metalness: 0.45, side: THREE.DoubleSide }))
   tail.rotation.z = Math.PI / 2
   tail.castShadow = true
   tailGrp.add(tail)
@@ -938,7 +951,7 @@ export function crashsite(w: World, cx: number, cz: number, tier: number) {
   w.group.add(wing)
   w.col.addBox(wingX - 4, w.groundHeight(wingX, wingZ), wingZ - 1.2, wingX + 4, w.groundHeight(wingX, wingZ) + 0.9, wingZ + 1.2)
   const engX = cx - dz * 7, engZ = cz + dx * 7
-  const eng = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.85, 2.6, 10), w.mat(0x3a3f44, 'metal'))
+  const eng = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 0.85, 2.6, 20), w.mat(0x3a3f44, 'metal'))
   eng.rotation.z = Math.PI / 2
   eng.rotation.y = w.rng.range(0, 3)
   eng.position.set(engX, w.groundHeight(engX, engZ) + 0.8, engZ)
@@ -1038,12 +1051,12 @@ export function power(w: World, cx: number, cz: number, r: number, tier: number)
     const sx = cx + ox, sz = cz - d / 2 - 4
     const sg = w.groundHeight(sx, sz)
     const stackH = 21
-    const stack = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.7, stackH, 12), surface({ color: 0xb4aca0, map: w.tex('concrete'), roughness: 0.92, flatShading: true }))
+    const stack = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.7, stackH, 26), surface({ color: 0xb4aca0, map: w.tex('concrete'), roughness: 0.92 }))
     stack.position.set(sx, sg + stackH / 2, sz)
     stack.castShadow = true
     w.group.add(stack)
     for (const bandY of [stackH - 1.5, stackH - 4]) {
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(1.22, 1.26, 1.1, 12), w.mat(0xa84a32))
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(1.22, 1.26, 1.1, 26), w.mat(0xa84a32))
       band.position.set(sx, sg + bandY, sz)
       w.group.add(band)
     }
@@ -1058,7 +1071,7 @@ export function power(w: World, cx: number, cz: number, r: number, tier: number)
       const px = yx - 4 + i * 4, pz = yz - 2 + j * 4.5
       w.box(1.6, 1.8, 1.2, px, yg, pz, 0x5d6a74, true, true, 'metal')
       for (const io of [-0.45, 0, 0.45]) {
-        const ins = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.55, 6), w.mat(0x8a7350))
+        const ins = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.55, 10), w.mat(0x8a7350))
         ins.position.set(px + io, yg + 2.1, pz)
         w.group.add(ins)
       }
@@ -1071,7 +1084,7 @@ export function power(w: World, cx: number, cz: number, r: number, tier: number)
   // 油罐 + 管线
   const ox2 = cx - 18, oz2 = cz + 9
   const og = w.groundHeight(ox2, oz2)
-  const tank = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 4.6, 14), surface({ color: 0xc2c6c8, map: w.tex('metal'), roughness: 0.42, metalness: 0.5, flatShading: true }))
+  const tank = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.4, 4.6, 30), surface({ color: 0xc2c6c8, map: w.tex('metal'), roughness: 0.42, metalness: 0.5 }))
   tank.position.set(ox2, og + 2.3, oz2)
   tank.castShadow = true
   w.group.add(tank)
@@ -1079,7 +1092,7 @@ export function power(w: World, cx: number, cz: number, r: number, tier: number)
   w.box(0.28, 0.28, 9, ox2 + 3.5, og + 0.6, oz2 - 6, 0x8a8d90, false, false, 'metal')
   w.mapRects.push({ x: ox2, z: oz2, w: 6.8, d: 6.8, color: '#a8acae' })
   // 煤堆
-  const coal = new THREE.Mesh(new THREE.ConeGeometry(4.2, 2.6, 10), w.mat(0x26282a))
+  const coal = new THREE.Mesh(new THREE.ConeGeometry(4.2, 2.6, 22), w.mat(0x26282a))
   const clg = w.groundHeight(cx - 16, cz - 10)
   coal.position.set(cx - 16, clg + 1.3, cz - 10)
   coal.castShadow = true
@@ -1088,7 +1101,7 @@ export function power(w: World, cx: number, cz: number, r: number, tier: number)
   // 油桶组 + 电缆卷轴
   barrel(w, cx + 2, cz + 9)
   barrel(w, cx + 3.2, cz + 9.5)
-  const spool = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.6, 10), w.mat(0x8a7350, 'wood'))
+  const spool = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.6, 20), w.mat(0x8a7350, 'wood'))
   spool.rotation.z = Math.PI / 2
   const spg = w.groundHeight(cx - 2, cz + 10)
   spool.position.set(cx - 2, spg + 0.9, cz + 10)

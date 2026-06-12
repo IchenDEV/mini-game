@@ -352,68 +352,6 @@ export function jungleDetail(): THREE.CanvasTexture {
   return makeTex(c)
 }
 
-/** 草叶簇（透明背景，用于交叉面片草丛）：细长叶片、根部深梢部亮，混入枯叶与草穗 */
-export function grassBlades(): THREE.CanvasTexture {
-  const n = 128
-  const [c, g] = canvas(n)
-  g.clearRect(0, 0, n, n)
-  // 细长叶片（比旧版更窄更密，减少"塑料片"感）
-  for (let i = 0; i < 44; i++) {
-    const x0 = 5 + Math.random() * (n - 10)
-    const h = 38 + Math.random() * 82
-    const sway = (Math.random() - 0.5) * 36
-    const w = 1.1 + Math.random() * 1.9
-    const dry = Math.random() < 0.22
-    const v = 150 + Math.floor(Math.random() * 95)
-    const topR = dry ? Math.min(255, v * 1.08) : v * 0.9
-    const topG = dry ? v * 0.88 : v
-    const topB = dry ? v * 0.42 : v * 0.5
-    const grad = g.createLinearGradient(x0, n, x0 + sway, n - h)
-    grad.addColorStop(0, `rgb(${Math.floor(topR * 0.42)},${Math.floor(topG * 0.5)},${Math.floor(topB * 0.42)})`)
-    grad.addColorStop(0.55, `rgb(${Math.floor(topR * 0.78)},${Math.floor(topG * 0.86)},${Math.floor(topB * 0.7)})`)
-    grad.addColorStop(1, `rgb(${Math.floor(topR)},${Math.floor(topG)},${Math.floor(topB)})`)
-    g.fillStyle = grad
-    g.beginPath()
-    g.moveTo(x0 - w, n)
-    g.quadraticCurveTo(x0 - w * 0.25 + sway * 0.45, n - h * 0.6, x0 + sway, n - h)
-    g.quadraticCurveTo(x0 + w * 0.25 + sway * 0.45, n - h * 0.6, x0 + w, n)
-    g.closePath()
-    g.fill()
-  }
-  // 草穗（少量，顶端碎点）
-  for (let i = 0; i < 7; i++) {
-    const x0 = 8 + Math.random() * (n - 16)
-    const h = 70 + Math.random() * 48
-    const sway = (Math.random() - 0.5) * 22
-    const v = 165 + Math.random() * 60
-    g.strokeStyle = `rgba(${Math.floor(v)},${Math.floor(v * 0.92)},${Math.floor(v * 0.55)},0.9)`
-    g.lineWidth = 1
-    g.beginPath()
-    g.moveTo(x0, n)
-    g.quadraticCurveTo(x0 + sway * 0.4, n - h * 0.6, x0 + sway, n - h)
-    g.stroke()
-    g.fillStyle = `rgba(${Math.floor(v * 1.05)},${Math.floor(v * 0.9)},${Math.floor(v * 0.5)},0.9)`
-    for (let k = 0; k < 5; k++) {
-      g.fillRect(x0 + sway - 1.6 + (Math.random() - 0.5) * 3.4, n - h + k * 2.6 - 2, 1.7, 1.7)
-    }
-  }
-  // 根部杂草垫（压暗，接地）
-  for (let i = 0; i < 48; i++) {
-    const x = Math.random() * n
-    const v = 85 + Math.floor(Math.random() * 60)
-    g.strokeStyle = `rgba(${Math.floor(v * 0.85)},${v},${Math.floor(v * 0.5)},0.9)`
-    g.lineWidth = 1.4
-    g.beginPath()
-    g.moveTo(x, n)
-    g.lineTo(x + (Math.random() - 0.5) * 9, n - 5 - Math.random() * 11)
-    g.stroke()
-  }
-  const t = new THREE.CanvasTexture(c)
-  t.colorSpace = THREE.SRGBColorSpace
-  t.anisotropy = 4
-  return t
-}
-
 /** 树皮：竖向沟壑裂纹（亮度纹理，由 trunkColor 上色） */
 export function bark(): THREE.CanvasTexture {
   const n = 128
@@ -800,52 +738,6 @@ export function skyGradient(top = '#7fa6c8', mid = '#aec8da', low = '#cdd9e0', h
   g.fillRect(0, 0, 256, 256)
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = THREE.SRGBColorSpace
-  return t
-}
-
-/**
- * 近景草叶簇（透明竖贴图）：一个 quad 上 5-7 根独立窄草叶，
- * 根部深、叶尖亮，少量枯黄叶混入。用于玩家脚边的 hero 草层。
- */
-export function grassBladeClump(): THREE.CanvasTexture {
-  const n = 256
-  const [c, g] = canvas(n)
-  g.clearRect(0, 0, n, n)
-  const blades = 7
-  for (let i = 0; i < blades; i++) {
-    // 沿底边均匀分布 + 抖动，向外微张
-    const x0 = n * (0.16 + (i / (blades - 1)) * 0.68) + (Math.random() - 0.5) * 14
-    const h = n * (0.5 + Math.random() * 0.46)
-    const lean = (x0 - n / 2) * 0.35 + (Math.random() - 0.5) * 26
-    const w = 3.2 + Math.random() * 3.4
-    const dry = Math.random() < 0.18
-    const v = 150 + Math.floor(Math.random() * 86)
-    const tr = dry ? Math.min(255, v * 1.1) : v * 0.86
-    const tg = dry ? v * 0.84 : v
-    const tb = dry ? v * 0.38 : v * 0.46
-    const grad = g.createLinearGradient(x0, n, x0 + lean, n - h)
-    grad.addColorStop(0, `rgb(${Math.floor(tr * 0.48)},${Math.floor(tg * 0.56)},${Math.floor(tb * 0.46)})`)
-    grad.addColorStop(0.5, `rgb(${Math.floor(tr * 0.82)},${Math.floor(tg * 0.9)},${Math.floor(tb * 0.72)})`)
-    grad.addColorStop(1, `rgb(${Math.floor(tr)},${Math.floor(tg)},${Math.floor(tb)})`)
-    g.fillStyle = grad
-    // 叶片：底宽顶尖，中段沿 lean 弯曲
-    g.beginPath()
-    g.moveTo(x0 - w, n)
-    g.quadraticCurveTo(x0 - w * 0.3 + lean * 0.4, n - h * 0.55, x0 + lean, n - h)
-    g.quadraticCurveTo(x0 + w * 0.3 + lean * 0.4, n - h * 0.55, x0 + w, n)
-    g.closePath()
-    g.fill()
-    // 中脉高光
-    g.strokeStyle = `rgba(${Math.floor(tr * 1.06)},${Math.floor(tg * 1.04)},${Math.floor(tb * 0.8)},0.35)`
-    g.lineWidth = 1
-    g.beginPath()
-    g.moveTo(x0, n)
-    g.quadraticCurveTo(x0 + lean * 0.45, n - h * 0.55, x0 + lean, n - h + 2)
-    g.stroke()
-  }
-  const t = new THREE.CanvasTexture(c)
-  t.colorSpace = THREE.SRGBColorSpace
-  t.anisotropy = 4
   return t
 }
 

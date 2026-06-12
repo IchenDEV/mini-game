@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { clamp, damp } from '../utils/math'
-import { surface, glass, cloth, metal } from '../rendering/materials'
+import { surface, glass, carPaint, metal } from '../rendering/materials'
+import { rbox, cyl, sph, torus, lathe, extrudeSmooth } from '../rendering/smoothGeo'
+import { pbr } from '../rendering/pbrTextures'
 import type { Ctx } from '../core/ctx'
 import type { Character } from '../entities/character'
 
@@ -85,16 +87,42 @@ export class Vehicle {
     return m
   }
 
-  /** 车轮组：胎面 + 轮毂盖，前轮挂转向枢轴 */
-  private addWheels(positions: [number, number][], r: number, w: number, darkC: THREE.Material) {
-    const wheelGeo = new THREE.CylinderGeometry(r, r, w, 10)
-    const hubGeo = new THREE.CylinderGeometry(r * 0.45, r * 0.45, w + 0.04, 8)
-    const hubC = metal(0x8d9296)
+  /**
+   * 车轮组：车削一体轮胎（胎肩圆弧 + 轮辋内凹）+ 辐条轮毂，前轮挂转向枢轴。
+   * 剖面绕 y 车削后旋转 90° 使轮轴横向。
+   */
+  private addWheels(positions: [number, number][], r: number, w: number) {
+    const h = w / 2
+    const tireGeo = lathe([
+      [r * 0.36, -h + 0.02], [r * 0.66, -h + 0.035], [r * 0.84, -h + 0.02],
+      [r * 0.97, -h + 0.09], [r, -h + 0.16], [r, h - 0.16], [r * 0.97, h - 0.09],
+      [r * 0.84, h - 0.02], [r * 0.66, h - 0.035], [r * 0.36, h - 0.02],
+    ], 28, `tire|${r}|${w}`)
+    const tireMat = surface({ color: 0x232527, roughness: 0.94, metalness: 0 })
+    const hubMat = metal(0x8d9296)
+    const hubGeo = cyl(r * 0.36, r * 0.36, w * 0.86, 18)
+    const spokeGeo = rbox(r * 0.5, 0.025, 0.07, 0.01, 2)
+    const capGeo = sph(0.055, 12, 9)
     for (const [sx, sz] of positions) {
       const grp = new THREE.Group()
-      const tire = new THREE.Mesh(wheelGeo, darkC)
+      const tire = new THREE.Mesh(tireGeo, tireMat)
       tire.castShadow = true
-      grp.add(tire, new THREE.Mesh(hubGeo, hubC))
+      const hub = new THREE.Mesh(hubGeo, hubMat)
+      grp.add(tire, hub)
+      // 五辐条 + 中心盖（两侧）
+      for (const side of [-1, 1]) {
+        for (let i = 0; i < 5; i++) {
+          const sp = new THREE.Mesh(spokeGeo, hubMat)
+          sp.position.set(0, side * (w * 0.43), 0)
+          sp.rotation.y = (i / 5) * Math.PI * 2
+          sp.translateX(r * 0.28)
+          grp.add(sp)
+        }
+        const cap = new THREE.Mesh(capGeo, hubMat)
+        cap.position.y = side * (w * 0.42)
+        cap.scale.set(1, 0.5, 1)
+        grp.add(cap)
+      }
       grp.rotation.z = Math.PI / 2
       const pivot = new THREE.Group()
       pivot.position.set(sx, r, sz)
@@ -105,163 +133,289 @@ export class Vehicle {
     }
   }
 
-  /** 车灯：前大灯（暖白）+ 尾灯（红） */
+  /** 轮拱罩（半圆弧眉），车身与轮胎之间的过渡件 */
+  private addFenders(positions: [number, number][], r: number, mat: THREE.Material) {
+    const arcGeo = new THREE.TorusGeometry(r + 0.12, 0.085, 8, 18, Math.PI)
+    for (const [sx, sz] of positions) {
+      const f = new THREE.Mesh(arcGeo, mat)
+      f.position.set(sx, r + 0.02, sz)
+      f.rotation.y = Math.PI / 2
+      f.castShadow = true
+      this.mesh.add(f)
+    }
+  }
+
+  /** 车灯：圆形大灯（透镜 + 镶边）+ 圆角尾灯 */
   private addLights(w2: number, frontZ: number, backZ: number, y: number) {
-    const head = surface({ color: 0xfff2c9, roughness: 0.3, emissive: 0x5d543a })
-    const tail = surface({ color: 0xb33327, roughness: 0.4, emissive: 0x3d0c08 })
+    const head = surface({ color: 0xfff2c9, roughness: 0.18, metalness: 0.1, emissive: 0x6d6248 })
+    const rim = metal(0x9aa0a4)
+    const tail = surface({ color: 0xb33327, roughness: 0.3, metalness: 0.05, emissive: 0x4d100a })
     for (const sx of [-w2, w2]) {
-      this.add(new THREE.BoxGeometry(0.28, 0.16, 0.06), head, sx, y, frontZ)
-      this.add(new THREE.BoxGeometry(0.24, 0.14, 0.05), tail, sx, y + 0.02, backZ)
+      const lamp = this.add(cyl(0.1, 0.1, 0.05, 18), head, sx, y, frontZ)
+      lamp.rotation.x = Math.PI / 2
+      const ring = this.add(torus(0.1, 0.018, 8, 18), rim, sx, y, frontZ + 0.02)
+      ring.castShadow = false
+      this.add(rbox(0.24, 0.13, 0.06, 0.03, 3), tail, sx, y + 0.02, backZ)
+    }
+  }
+
+  /** 后视镜：弯杆 + 圆角镜面 */
+  private addMirrors(x2: number, y: number, z: number, mat: THREE.Material) {
+    for (const sx of [-1, 1]) {
+      const arm = this.add(cyl(0.022, 0.022, 0.16, 10), mat, sx * x2, y, z)
+      arm.rotation.z = sx * 1.15
+      this.add(rbox(0.05, 0.16, 0.11, 0.02, 3), mat, sx * (x2 + 0.13), y + 0.05, z)
     }
   }
 
   private build() {
     const bodyHex = this.spec.colors[Math.floor(Math.random() * this.spec.colors.length)]
-    const bodyC = surface({ color: bodyHex, roughness: 0.42, metalness: 0.45, flatShading: true })
-    const darkC = surface({ color: 0x3a4034, roughness: 0.72, metalness: 0.2, flatShading: true })
-    const trimC = surface({ color: 0x2e3134, roughness: 0.6, metalness: 0.3, flatShading: true })
-    const seatC = cloth(0x2c2f2a)
-    const glassC = glass(0x9fc4d4)
+    const bodyC = carPaint(bodyHex)
+    const darkC = surface({ color: 0x3a4034, roughness: 0.72, metalness: 0.2 })
+    const trimC = surface({ color: 0x2e3134, roughness: 0.55, metalness: 0.35 })
+    const fab = pbr('fabric')
+    const seatC = surface({ color: 0x2c2f2a, normalMap: fab.normalMap, normalScale: 0.5, roughness: 0.92 })
+    const glassC = glass()
     if (this.kind === 'buggy') this.buildBuggy(bodyC, darkC, trimC, seatC, glassC)
     else if (this.kind === 'pickup') this.buildPickup(bodyC, darkC, trimC, seatC, glassC)
     else this.buildVan(bodyC, darkC, trimC, seatC, glassC)
   }
 
-  /** 开放式越野吉普（+z 朝前） */
+  /** 车身剖面挤出（侧视轮廓 → 横向圆角车壳），车头朝 +z；smooth 时上轮廓走样条（无折角） */
+  private hull(profile: [number, number][], width: number, mat: THREE.Material, bevel = 0.09, key?: string, smooth = true) {
+    const shape = new THREE.Shape()
+    const [x0, y0] = profile[0]
+    shape.moveTo(x0, y0)
+    if (smooth) {
+      shape.splineThru(profile.slice(1).map(([px, py]) => new THREE.Vector2(px, py)))
+    } else {
+      profile.slice(1).forEach(([px, py]) => shape.lineTo(px, py))
+    }
+    shape.closePath()
+    const geo = extrudeSmooth(shape, width - bevel * 2, bevel, 4, key)
+    const m = new THREE.Mesh(geo, mat)
+    m.rotation.y = -Math.PI / 2
+    m.castShadow = true
+    m.receiveShadow = true
+    this.mesh.add(m)
+    return m
+  }
+
+  /** 开放式越野吉普（+z 朝前）：弧面壳体 + 圆管防滚架 */
   private buildBuggy(bodyC: THREE.Material, darkC: THREE.Material, trimC: THREE.Material, seatC: THREE.Material, glassC: THREE.Material) {
-    // 底盘 + 车头
-    this.add(new THREE.BoxGeometry(2.0, 0.5, 3.6), bodyC, 0, 0.62, 0)
-    this.add(new THREE.BoxGeometry(1.9, 0.4, 1.0), bodyC, 0, 1.0, 1.25)
-    // 前格栅 + 保险杠
-    this.add(new THREE.BoxGeometry(1.5, 0.3, 0.07), trimC, 0, 0.95, 1.78)
-    this.add(new THREE.BoxGeometry(2.0, 0.16, 0.18), trimC, 0, 0.52, 1.84)
-    this.add(new THREE.BoxGeometry(2.0, 0.16, 0.18), trimC, 0, 0.52, -1.84)
-    // 引擎盖进气口
-    this.add(new THREE.BoxGeometry(0.6, 0.06, 0.5), trimC, 0, 1.22, 1.3)
-    this.add(new THREE.BoxGeometry(0.16, 0.5, 0.04), darkC, 0, 1.42, 0.72)
-    // 方向盘
-    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.03, 5, 10), darkC)
+    // 一体壳：尾部 → 座舱开放区下沿 → 引擎盖弧线 → 车头下倾（x=车长方向，车头 +x）
+    this.hull([
+      [-1.8, 0.42], [-1.85, 1.18], [-1.45, 1.26], [-0.75, 1.24],
+      [-0.55, 0.95], [0.45, 0.95], [0.72, 1.22], [1.28, 1.3],
+      [1.62, 1.22], [1.82, 0.98], [1.86, 0.42],
+    ], 1.9, bodyC, 0.1, `buggy|${this.kind}`)
+    // 前格栅（横杆）+ 牵引钩
+    for (const gy of [0.78, 0.92, 1.06]) {
+      this.add(rbox(1.3, 0.06, 0.06, 0.02, 2), trimC, 0, gy, 1.86)
+    }
+    // 保险杠（圆管）
+    for (const sz of [1.92, -1.92]) {
+      const bump = this.add(cyl(0.075, 0.075, 1.9, 14), trimC, 0, 0.52, sz)
+      bump.rotation.z = Math.PI / 2
+    }
+    // 引擎盖进气口 + 中央天线
+    this.add(rbox(0.6, 0.05, 0.46, 0.02, 2), trimC, 0, 1.32, 1.25)
+    const ant = this.add(cyl(0.012, 0.008, 0.85, 8), darkC, -0.82, 1.7, -1.6)
+    ant.rotation.x = -0.12
+    // 方向盘（高细分）
+    const wheel = new THREE.Mesh(torus(0.17, 0.026, 8, 22), darkC)
     wheel.position.set(-0.45, 1.32, 0.42)
     wheel.rotation.x = -1.1
     this.mesh.add(wheel)
-    // 风挡
-    this.add(new THREE.BoxGeometry(1.8, 0.7, 0.08), glassC, 0, 1.55, 0.7)
-    // 座椅 + 靠背
-    this.add(new THREE.BoxGeometry(0.7, 0.5, 0.6), seatC, -0.45, 1.05, -0.1)
-    this.add(new THREE.BoxGeometry(0.7, 0.5, 0.6), seatC, 0.45, 1.05, -0.1)
-    this.add(new THREE.BoxGeometry(0.7, 0.55, 0.12), seatC, -0.45, 1.38, -0.42)
-    this.add(new THREE.BoxGeometry(0.7, 0.55, 0.12), seatC, 0.45, 1.38, -0.42)
-    // 防滚架
-    this.add(new THREE.BoxGeometry(0.1, 0.9, 0.1), darkC, -0.85, 1.3, -0.9)
-    this.add(new THREE.BoxGeometry(0.1, 0.9, 0.1), darkC, 0.85, 1.3, -0.9)
-    this.add(new THREE.BoxGeometry(1.85, 0.1, 0.1), darkC, 0, 1.78, -0.9)
-    // 油桶 + 备胎 + 排气管
-    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.55, 8), metal(0x7a3a30))
-    drum.position.set(0.55, 1.05, -1.55)
+    // 风挡（带框，微后倾）
+    const wsFrame = this.add(rbox(1.78, 0.74, 0.07, 0.03, 3), trimC, 0, 1.58, 0.68)
+    wsFrame.rotation.x = -0.12
+    const ws = this.add(rbox(1.62, 0.6, 0.05, 0.02, 2), glassC, 0, 1.58, 0.665)
+    ws.rotation.x = -0.12
+    ws.castShadow = false
+    // 桶形座椅（圆角壳 + 头枕）
+    for (const sx of [-0.45, 0.45]) {
+      this.add(rbox(0.68, 0.16, 0.58, 0.05, 3), seatC, sx, 1.06, -0.1)
+      const back = this.add(rbox(0.66, 0.62, 0.14, 0.05, 3), seatC, sx, 1.4, -0.42)
+      back.rotation.x = 0.16
+      this.add(rbox(0.3, 0.18, 0.1, 0.04, 3), seatC, sx, 1.78, -0.48)
+    }
+    // 防滚架：圆管门形 ×2 + 横梁 + 斜撑
+    const cageMat = surface({ color: 0x44483e, roughness: 0.45, metalness: 0.4 })
+    for (const cz of [-0.88, -0.3]) {
+      for (const sx of [-0.84, 0.84]) {
+        this.add(cyl(0.05, 0.05, 0.92, 12), cageMat, sx, 1.32, cz)
+      }
+      const top = this.add(cyl(0.05, 0.05, 1.76, 12), cageMat, 0, 1.79, cz)
+      top.rotation.z = Math.PI / 2
+    }
+    for (const sx of [-0.84, 0.84]) {
+      const brace = this.add(cyl(0.04, 0.04, 0.66, 10), cageMat, sx, 1.62, -0.59)
+      brace.rotation.x = 1.1
+    }
+    // 油桶（高细分 + 滚边）+ 备胎（车削轮胎同款）+ 排气管
+    const drum = new THREE.Mesh(cyl(0.22, 0.22, 0.55, 18), metal(0x7a3a30))
+    drum.position.set(0.55, 1.1, -1.52)
     drum.castShadow = true
     this.mesh.add(drum)
-    const spare = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.32, 10), darkC)
+    for (const dy of [0.95, 1.24]) {
+      const band = new THREE.Mesh(torus(0.222, 0.012, 6, 18), metal(0x5d2a22))
+      band.position.set(0.55, dy, -1.52)
+      band.rotation.x = Math.PI / 2
+      this.mesh.add(band)
+    }
+    const spareGeo = lathe([
+      [0.15, -0.13], [0.27, -0.15], [0.35, -0.1], [0.42, -0.06],
+      [0.42, 0.06], [0.35, 0.1], [0.27, 0.15], [0.15, 0.13],
+    ], 24, 'spare')
+    const spare = new THREE.Mesh(spareGeo, surface({ color: 0x232527, roughness: 0.94, metalness: 0 }))
     spare.rotation.x = Math.PI / 2
-    spare.position.set(0, 0.95, -1.92)
+    spare.position.set(-0.4, 1.05, -1.9)
+    spare.castShadow = true
     this.mesh.add(spare)
-    const exh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.5, 6), metal(0x5d6166))
+    const exh = new THREE.Mesh(cyl(0.055, 0.065, 0.5, 14), metal(0x5d6166))
     exh.rotation.x = Math.PI / 2
     exh.position.set(-0.7, 0.42, -1.85)
     this.mesh.add(exh)
-    this.addLights(0.7, 1.82, -1.82, 0.98)
-    this.addWheels([[-1.0, 1.25], [1.0, 1.25], [-1.0, -1.15], [1.0, -1.15]], 0.42, 0.32, darkC)
+    const exhTip = new THREE.Mesh(torus(0.062, 0.008, 6, 14), metal(0x44484c))
+    exhTip.position.set(-0.7, 0.42, -2.1)
+    this.mesh.add(exhTip)
+    this.addLights(0.66, 1.84, -1.86, 1.0)
+    const wheelPos: [number, number][] = [[-1.0, 1.25], [1.0, 1.25], [-1.0, -1.15], [1.0, -1.15]]
+    this.addWheels(wheelPos, 0.42, 0.32)
+    this.addFenders(wheelPos, 0.42, bodyC)
   }
 
-  /** 皮卡：封闭驾驶舱 + 开放后斗 */
+  /** 皮卡：弧面驾驶舱壳体 + 开放后斗 */
   private buildPickup(bodyC: THREE.Material, darkC: THREE.Material, trimC: THREE.Material, seatC: THREE.Material, glassC: THREE.Material) {
-    // 底盘
-    this.add(new THREE.BoxGeometry(2.1, 0.5, 4.4), bodyC, 0, 0.6, 0)
-    // 引擎舱
-    this.add(new THREE.BoxGeometry(2.0, 0.55, 1.3), bodyC, 0, 1.05, 1.5)
-    // 驾驶舱（带顶）
-    this.add(new THREE.BoxGeometry(2.0, 0.85, 1.5), bodyC, 0, 1.05, 0.1)
-    this.add(new THREE.BoxGeometry(1.9, 0.12, 1.45), bodyC, 0, 1.92, 0.08)
-    // A/B 柱 + 风挡 + 侧窗 + 后窗
-    this.add(new THREE.BoxGeometry(1.76, 0.62, 0.07), glassC, 0, 1.6, 0.78)
-    this.add(new THREE.BoxGeometry(1.76, 0.58, 0.07), glassC, 0, 1.58, -0.62)
-    for (const sx of [-1, 1]) {
-      this.add(new THREE.BoxGeometry(0.07, 0.58, 1.2), glassC, sx * 0.94, 1.58, 0.08)
-      this.add(new THREE.BoxGeometry(0.09, 0.66, 0.1), bodyC, sx * 0.95, 1.6, 0.76)
-      this.add(new THREE.BoxGeometry(0.09, 0.66, 0.1), bodyC, sx * 0.95, 1.6, -0.6)
+    // 主壳：尾斗前壁 → 驾驶舱顶弧 → A 柱斜面 → 引擎盖 → 车头（+x 朝前）
+    this.hull([
+      [-0.62, 0.5], [-0.66, 1.2], [-0.62, 1.72], [-0.4, 1.88], [-0.05, 1.91], [0.3, 1.86],
+      [0.62, 1.6], [0.92, 1.36], [1.3, 1.22], [1.75, 1.14], [2.08, 1.1],
+      [2.18, 0.95], [2.2, 0.5],
+    ], 1.96, bodyC, 0.1, 'pickup-cab')
+    // 后斗：底板 + 双侧板 + 尾门（圆角板拼装）
+    this.add(rbox(1.96, 0.1, 1.66, 0.03, 2), trimC, 0, 0.85, -1.45)
+    for (const sx of [-0.94, 0.94]) {
+      this.add(rbox(0.1, 0.52, 1.66, 0.035, 3), bodyC, sx, 1.12, -1.45)
     }
-    // 后斗：底板 + 三侧板 + 尾门
-    this.add(new THREE.BoxGeometry(2.0, 0.1, 1.7), trimC, 0, 0.88, -1.45)
-    this.add(new THREE.BoxGeometry(0.09, 0.5, 1.7), bodyC, -0.96, 0.92, -1.45)
-    this.add(new THREE.BoxGeometry(0.09, 0.5, 1.7), bodyC, 0.96, 0.92, -1.45)
-    this.add(new THREE.BoxGeometry(2.0, 0.5, 0.09), bodyC, 0, 0.92, -2.26)
+    this.add(rbox(1.96, 0.52, 0.1, 0.035, 3), bodyC, 0, 1.12, -2.24)
+    // 底盘连接段（斗底与车架）
+    this.add(rbox(2.0, 0.42, 1.9, 0.08, 3), bodyC, 0, 0.6, -1.4)
     // 后斗货物（随机木箱）
-    if (Math.random() < 0.6) this.add(new THREE.BoxGeometry(0.7, 0.5, 0.7), cloth(0x6e5a3c), 0.3, 0.95, -1.3)
-    // 格栅 + 保险杠
-    this.add(new THREE.BoxGeometry(1.6, 0.35, 0.08), trimC, 0, 1.0, 2.12)
-    this.add(new THREE.BoxGeometry(2.1, 0.18, 0.2), trimC, 0, 0.5, 2.18)
-    this.add(new THREE.BoxGeometry(2.1, 0.18, 0.2), trimC, 0, 0.5, -2.32)
-    // 车顶探照灯排
-    this.add(new THREE.BoxGeometry(1.2, 0.1, 0.12), trimC, 0, 2.02, 0.6)
-    for (const lx of [-0.4, 0, 0.4]) {
-      this.add(new THREE.BoxGeometry(0.16, 0.12, 0.1), surface({ color: 0xfff2c9, roughness: 0.35, emissive: 0x2c281b }), lx, 2.05, 0.66)
+    if (Math.random() < 0.6) {
+      const fabTex = pbr('planks')
+      this.add(rbox(0.7, 0.5, 0.7, 0.04, 3), surface({ color: 0x8a7350, map: fabTex.map, normalMap: fabTex.normalMap, roughness: 0.8 }), 0.3, 0.95, -1.3)
+    }
+    // 风挡 + 侧窗 + 后窗（圆角玻璃，嵌在壳体表面）
+    const ws = this.add(rbox(1.7, 0.6, 0.06, 0.04, 3), glassC, 0, 1.56, 0.84)
+    ws.rotation.x = -0.42
+    ws.castShadow = false
+    this.add(rbox(1.78, 0.5, 0.06, 0.04, 3), glassC, 0, 1.5, -0.61).castShadow = false
+    for (const sx of [-0.95, 0.95]) {
+      const win = this.add(rbox(0.06, 0.46, 1.05, 0.03, 3), glassC, sx, 1.5, 0.08)
+      win.castShadow = false
+    }
+    // 格栅（横条）+ 保险杠（圆角厚块）
+    for (const gy of [0.88, 1.0]) {
+      this.add(rbox(1.5, 0.07, 0.07, 0.025, 2), trimC, 0, gy, 2.2)
+    }
+    this.add(rbox(2.06, 0.2, 0.24, 0.07, 3), trimC, 0, 0.52, 2.22)
+    this.add(rbox(2.06, 0.2, 0.24, 0.07, 3), trimC, 0, 0.52, -2.32)
+    // 车顶探照灯排（圆灯）
+    const barGeo = cyl(0.035, 0.035, 1.2, 10)
+    const bar = new THREE.Mesh(barGeo, trimC)
+    bar.position.set(0, 2.0, 0.55)
+    bar.rotation.z = Math.PI / 2
+    this.mesh.add(bar)
+    for (const lx of [-0.38, 0, 0.38]) {
+      const lamp = this.add(cyl(0.07, 0.07, 0.09, 14), surface({ color: 0xfff2c9, roughness: 0.25, metalness: 0.1, emissive: 0x35301f }), lx, 2.06, 0.6)
+      lamp.rotation.x = Math.PI / 2
     }
     // 内饰：座椅 + 方向盘
-    this.add(new THREE.BoxGeometry(0.65, 0.45, 0.55), seatC, -0.45, 0.95, 0.0)
-    this.add(new THREE.BoxGeometry(0.65, 0.45, 0.55), seatC, 0.45, 0.95, 0.0)
-    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.03, 5, 10), darkC)
+    for (const sx of [-0.45, 0.45]) {
+      this.add(rbox(0.62, 0.16, 0.52, 0.05, 3), seatC, sx, 0.98, 0.0)
+      const back = this.add(rbox(0.6, 0.5, 0.13, 0.05, 3), seatC, sx, 1.28, -0.28)
+      back.rotation.x = 0.12
+    }
+    const wheel = new THREE.Mesh(torus(0.16, 0.026, 8, 22), darkC)
     wheel.position.set(-0.45, 1.3, 0.55)
     wheel.rotation.x = -1.1
     this.mesh.add(wheel)
+    this.addMirrors(1.0, 1.55, 0.85, trimC)
     // 排气管
-    const exh = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.45, 6), metal(0x5d6166))
+    const exh = new THREE.Mesh(cyl(0.055, 0.065, 0.45, 14), metal(0x5d6166))
     exh.rotation.x = Math.PI / 2
     exh.position.set(0.75, 0.38, -2.3)
     this.mesh.add(exh)
-    this.addLights(0.78, 2.16, -2.3, 1.0)
-    this.addWheels([[-1.05, 1.5], [1.05, 1.5], [-1.05, -1.4], [1.05, -1.4]], 0.45, 0.34, darkC)
+    this.addLights(0.74, 2.3, -2.31, 1.0)
+    const wheelPos: [number, number][] = [[-1.05, 1.5], [1.05, 1.5], [-1.05, -1.4], [1.05, -1.4]]
+    this.addWheels(wheelPos, 0.45, 0.34)
+    this.addFenders(wheelPos, 0.45, bodyC)
   }
 
-  /** 厢式车：整箱车身 + 短车头 + 车顶行李架 */
+  /** 厢式车：一体弧顶箱体 + 短鼻车头 + 车顶行李架 */
   private buildVan(bodyC: THREE.Material, darkC: THREE.Material, trimC: THREE.Material, seatC: THREE.Material, glassC: THREE.Material) {
-    // 底盘
-    this.add(new THREE.BoxGeometry(2.1, 0.45, 4.6), trimC, 0, 0.55, 0)
-    // 厢体
-    this.add(new THREE.BoxGeometry(2.1, 1.5, 3.4), bodyC, 0, 1.0, -0.5)
-    // 车头（短鼻 + 斜面感用两段盒子）
-    this.add(new THREE.BoxGeometry(2.05, 1.0, 1.3), bodyC, 0, 1.0, 1.6)
-    this.add(new THREE.BoxGeometry(1.95, 0.45, 0.5), bodyC, 0, 2.0, 1.45)
-    // 风挡（大块）+ 侧窗（驾驶位）
-    this.add(new THREE.BoxGeometry(1.8, 0.72, 0.08), glassC, 0, 1.72, 2.0)
-    for (const sx of [-1, 1]) {
-      this.add(new THREE.BoxGeometry(0.07, 0.5, 0.9), glassC, sx * 1.02, 1.62, 1.35)
+    // 一体壳：箱体大圆弧顶 → 风挡斜面 → 短鼻（+x 朝前）
+    this.hull([
+      [-2.25, 0.5], [-2.3, 2.32], [-1.9, 2.52], [1.0, 2.55],
+      [1.45, 2.4], [1.78, 1.75], [2.1, 1.62], [2.28, 1.2], [2.3, 0.5],
+    ], 2.04, bodyC, 0.12, 'van-hull')
+    // 风挡（斜面大玻璃）+ 驾驶位侧窗
+    const ws = this.add(rbox(1.74, 0.78, 0.06, 0.05, 3), glassC, 0, 2.04, 1.65)
+    ws.rotation.x = -0.45
+    ws.castShadow = false
+    for (const sx of [-1.0, 1.0]) {
+      const win = this.add(rbox(0.06, 0.5, 0.9, 0.04, 3), glassC, sx, 1.7, 1.35)
+      win.castShadow = false
     }
-    // 厢体侧滑门线 + 后双开门线（凹槽细条）
-    this.add(new THREE.BoxGeometry(0.04, 1.2, 0.05), trimC, 1.06, 0.95, 0.1)
-    this.add(new THREE.BoxGeometry(0.04, 1.2, 0.05), trimC, 1.06, 0.95, -1.2)
-    this.add(new THREE.BoxGeometry(0.05, 1.35, 0.04), trimC, 0, 0.95, -2.21)
-    // 车顶行李架
+    // 厢体侧滑门 + 后双开门（门板轮廓缝 + 圆角门把）
+    const seamC = surface({ color: 0x16181a, roughness: 0.8, metalness: 0.1 })
+    for (const dz of [0.1, -1.2]) {
+      this.add(rbox(0.035, 1.2, 0.045, 0.012, 2), seamC, 1.03, 1.55, dz)
+    }
+    this.add(rbox(0.05, 1.5, 0.04, 0.015, 2), seamC, 0, 1.52, -2.32)
+    this.add(rbox(1.62, 0.05, 0.04, 0.015, 2), seamC, 0, 2.24, -2.32)
+    this.add(rbox(1.62, 0.05, 0.04, 0.015, 2), seamC, 0, 0.8, -2.32)
+    for (const sx of [-0.81, 0.81]) {
+      this.add(rbox(0.05, 1.5, 0.04, 0.015, 2), seamC, sx, 1.52, -2.32)
+    }
+    this.add(rbox(0.14, 0.035, 0.05, 0.012, 2), trimC, 0.9, 1.32, 0.55)
+    this.add(rbox(0.14, 0.035, 0.06, 0.012, 2), trimC, 0.28, 1.36, -2.34)
+    this.add(rbox(0.14, 0.035, 0.06, 0.012, 2), trimC, -0.28, 1.36, -2.34)
+    // 牌照板
+    this.add(rbox(0.44, 0.2, 0.03, 0.01, 2), surface({ color: 0xdfe3e6, roughness: 0.5 }), 0, 0.66, -2.36)
+    // 车顶行李架（圆管骨架）
+    const railMat = metal(0x6e7479)
     for (const sz of [-1.6, -0.6, 0.4]) {
-      this.add(new THREE.BoxGeometry(1.9, 0.07, 0.07), metal(0x6e7479), 0, 2.55, sz)
+      const r1 = this.add(cyl(0.03, 0.03, 1.84, 10), railMat, 0, 2.64, sz)
+      r1.rotation.z = Math.PI / 2
     }
-    this.add(new THREE.BoxGeometry(0.07, 0.09, 2.4), metal(0x6e7479), -0.88, 2.54, -0.7)
-    this.add(new THREE.BoxGeometry(0.07, 0.09, 2.4), metal(0x6e7479), 0.88, 2.54, -0.7)
+    for (const sx of [-0.86, 0.86]) {
+      const r2 = this.add(cyl(0.032, 0.032, 2.4, 10), railMat, sx, 2.63, -0.7)
+      r2.rotation.x = Math.PI / 2
+    }
     // 格栅 + 保险杠
-    this.add(new THREE.BoxGeometry(1.5, 0.3, 0.08), trimC, 0, 0.92, 2.28)
-    this.add(new THREE.BoxGeometry(2.1, 0.2, 0.2), trimC, 0, 0.46, 2.32)
-    this.add(new THREE.BoxGeometry(2.1, 0.2, 0.2), trimC, 0, 0.46, -2.32)
-    // 后视镜
-    for (const sx of [-1, 1]) {
-      this.add(new THREE.BoxGeometry(0.08, 0.18, 0.12), trimC, sx * 1.14, 1.78, 1.95)
+    for (const gy of [0.82, 0.96]) {
+      this.add(rbox(1.4, 0.06, 0.06, 0.022, 2), trimC, 0, gy, 2.3)
     }
+    this.add(rbox(2.06, 0.22, 0.24, 0.07, 3), trimC, 0, 0.48, 2.32)
+    this.add(rbox(2.06, 0.22, 0.24, 0.07, 3), trimC, 0, 0.48, -2.34)
+    this.addMirrors(1.08, 1.85, 1.9, trimC)
     // 内饰
-    this.add(new THREE.BoxGeometry(0.65, 0.45, 0.55), seatC, -0.45, 0.95, 1.45)
-    this.add(new THREE.BoxGeometry(0.65, 0.45, 0.55), seatC, 0.45, 0.95, 1.45)
-    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.03, 5, 10), darkC)
+    for (const sx of [-0.45, 0.45]) {
+      this.add(rbox(0.62, 0.16, 0.52, 0.05, 3), seatC, sx, 0.98, 1.45)
+      const back = this.add(rbox(0.6, 0.5, 0.13, 0.05, 3), seatC, sx, 1.28, 1.18)
+      back.rotation.x = 0.1
+    }
+    const wheel = new THREE.Mesh(torus(0.16, 0.026, 8, 22), darkC)
     wheel.position.set(-0.45, 1.32, 1.95)
     wheel.rotation.x = -1.1
     this.mesh.add(wheel)
-    this.addLights(0.8, 2.3, -2.32, 0.95)
-    this.addWheels([[-1.06, 1.55], [1.06, 1.55], [-1.06, -1.45], [1.06, -1.45]], 0.44, 0.32, darkC)
+    this.addLights(0.76, 2.32, -2.34, 0.95)
+    const wheelPos: [number, number][] = [[-1.06, 1.55], [1.06, 1.55], [-1.06, -1.45], [1.06, -1.45]]
+    this.addWheels(wheelPos, 0.44, 0.32)
+    this.addFenders(wheelPos, 0.44, bodyC)
   }
 
   /** 驾驶输入更新（由玩家驾驶时调用） */
