@@ -1,143 +1,143 @@
-import { PixelIcon } from "./PixelIcon";
+import { HarborIcon, type HarborIconName } from "./PixelIcon";
 
 export interface HudProps {
   day: number;
-  elapsedSeconds: number;
-  dayDurationSeconds: number;
+  periodLabel: string;
+  weatherLabel: string;
+  weatherIcon: HarborIconName;
   money: number;
+  level: number;
+  levelProgress: number;
   reputation: number;
-  dayRevenue: number;
-  dailyTarget: number;
+  castsUsed: number;
+  castsPerDay: number;
   soundEnabled: boolean;
+  paused: boolean;
   onToggleSound: () => void;
+  onTogglePause: () => void;
   onOpenSettings: () => void;
 }
 
-const moneyFormatter = new Intl.NumberFormat("zh-CN", {
+const numberFormatter = new Intl.NumberFormat("zh-CN", {
   maximumFractionDigits: 0,
 });
 
-function getClockLabel(elapsedSeconds: number, dayDurationSeconds: number) {
-  const safeDuration = Math.max(1, dayDurationSeconds);
-  const progress = Math.min(1, Math.max(0, elapsedSeconds / safeDuration));
-  const openingMinutes = 8 * 60;
-  const businessMinutes = 12 * 60;
-  const totalMinutes = openingMinutes + Math.round(progress * businessMinutes);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+function clampUnit(value: number): number {
+  return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
 }
 
 export function Hud({
   day,
-  elapsedSeconds,
-  dayDurationSeconds,
+  periodLabel,
+  weatherLabel,
+  weatherIcon,
   money,
+  level,
+  levelProgress,
   reputation,
-  dayRevenue,
-  dailyTarget,
+  castsUsed,
+  castsPerDay,
   soundEnabled,
+  paused,
   onToggleSound,
+  onTogglePause,
   onOpenSettings,
 }: HudProps) {
-  const clockLabel = getClockLabel(elapsedSeconds, dayDurationSeconds);
-  const normalizedReputation = Math.min(
-    5,
-    Math.max(0, reputation > 5 ? reputation / 20 : reputation),
-  );
-  const filledHearts = Math.round(normalizedReputation);
-  const targetProgress =
-    dailyTarget > 0 ? Math.min(1, Math.max(0, dayRevenue / dailyTarget)) : 0;
+  const safeLevelProgress = clampUnit(levelProgress);
+  const safeReputation = Math.max(0, Math.round(reputation));
 
   return (
-    <header className="game-hud" aria-label="超市经营信息">
-      <div className="hud-brand" aria-label="松果小市">
-        <span className="hud-brand__mark">
-          <PixelIcon name="acorn" size={30} />
-        </span>
-        <span className="hud-brand__name">松果小市</span>
+    <header className="game-hud" aria-label="航海经营信息">
+      <div className="hud-brand" aria-label="海风渔港">
+        <HarborIcon name="anchor" size={29} />
+        <span>海风渔港</span>
       </div>
 
-      <div className="hud-metric hud-clock">
-        <PixelIcon name="clock" size={24} />
-        <span className="hud-metric__value">
-          第 {day} 天 <span aria-hidden="true">·</span> {clockLabel}
+      <div className="hud-day">
+        <strong>第 {day} 天</strong>
+        <span className="hud-day__weather">
+          <HarborIcon name={weatherIcon} size={22} />
+          {weatherLabel}
         </span>
+        <span>{periodLabel}</span>
       </div>
 
       <div
         className="hud-metric hud-money"
-        aria-label={`现金 ${moneyFormatter.format(money)} 元`}
+        aria-label={`金币 ${numberFormatter.format(money)}`}
       >
-        <PixelIcon name="coin" size={24} />
-        <span className="hud-metric__value">
-          ¥{moneyFormatter.format(money)}
+        <HarborIcon name="coin" size={27} />
+        <strong>{numberFormatter.format(money)}</strong>
+      </div>
+
+      <div
+        className="hud-metric hud-level"
+        aria-label={`船长等级 ${level}，经验进度 ${Math.round(
+          safeLevelProgress * 100,
+        )}%`}
+      >
+        <span className="hud-level__label">Lv.{level}</span>
+        <span className="hud-progress">
+          <span
+            className="hud-progress__fill"
+            style={{ width: `${safeLevelProgress * 100}%` }}
+          />
         </span>
       </div>
 
       <div
         className="hud-metric hud-reputation"
-        aria-label={`口碑 ${normalizedReputation.toFixed(1)} 星，满分 5 星`}
+        aria-label={`港口声望 ${safeReputation}`}
       >
-        <span className="hud-metric__label">口碑</span>
-        <span className="hud-hearts" aria-hidden="true">
-          {Array.from({ length: 5 }, (_, index) => (
-            <PixelIcon
-              className={
-                index < filledHearts
-                  ? "hud-heart hud-heart--filled"
-                  : "hud-heart hud-heart--empty"
-              }
-              key={index}
-              name="heart"
-              size={21}
-            />
-          ))}
+        <HarborIcon name="star" size={25} />
+        <span>
+          <small>声望</small>
+          <strong>{numberFormatter.format(safeReputation)}</strong>
         </span>
       </div>
 
       <div
-        className="hud-metric hud-target"
-        aria-label={`今日营业额 ${moneyFormatter.format(dayRevenue)} 元，目标 ${moneyFormatter.format(dailyTarget)} 元`}
+        className="hud-metric hud-casts"
+        aria-label={`今日已出竿 ${castsUsed} 次，共 ${castsPerDay} 次`}
       >
-        <PixelIcon name="target" size={24} />
-        <span className="hud-target__copy">
-          <span className="hud-metric__label">今日目标</span>
-          <span className="hud-metric__value">
-            ¥{moneyFormatter.format(dayRevenue)}
-            <span className="hud-target__separator"> / </span>
-            ¥{moneyFormatter.format(dailyTarget)}
-          </span>
-        </span>
-        <span className="hud-target__track" aria-hidden="true">
-          <span
-            className="hud-target__fill"
-            style={{ width: `${targetProgress * 100}%` }}
-          />
+        <HarborIcon name="hook" size={23} />
+        <span>
+          <small>今日出竿</small>
+          <strong>
+            {castsUsed}/{castsPerDay}
+          </strong>
         </span>
       </div>
 
       <div className="hud-actions">
         <button
-          className="icon-button"
+          className="hud-icon-button"
+          type="button"
+          aria-label={paused ? "继续游戏" : "暂停游戏"}
+          aria-pressed={paused}
+          onClick={onTogglePause}
+        >
+          <HarborIcon name={paused ? "play" : "pause"} size={23} />
+        </button>
+        <button
+          className="hud-icon-button"
           type="button"
           aria-label={soundEnabled ? "关闭音效" : "开启音效"}
           aria-pressed={soundEnabled}
           onClick={onToggleSound}
         >
-          <PixelIcon
+          <HarborIcon
             name={soundEnabled ? "soundOn" : "soundOff"}
-            size={24}
+            size={23}
           />
         </button>
         <button
-          className="icon-button"
+          className="hud-icon-button"
           type="button"
           aria-label="打开游戏设置"
           onClick={onOpenSettings}
         >
-          <PixelIcon name="settings" size={25} />
+          <HarborIcon name="settings" size={24} />
         </button>
       </div>
     </header>

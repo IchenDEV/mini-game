@@ -1,445 +1,293 @@
 import {
-  PRODUCT_LIST,
-  UPGRADE_CONFIG,
-} from "../data/products";
+  BAIT_LIST,
+  FISH_SPECIES,
+  GEAR_LIST,
+  LOCATION_LIST,
+} from "../data/fishing";
+import {
+  canFulfillOrder,
+  getGearUpgradeCost,
+  getLocationUnlockState,
+  getOrderProgress,
+} from "../game/engine";
 import type {
-  DrawerMode,
-  Inventory,
-  OrderDraft,
-  ProductId,
-  UpgradeId,
-  UpgradeLevels,
+  BaitId,
+  FishingOrder,
+  GameState,
+  GearId,
+  LocationId,
 } from "../game/types";
 import {
-  PixelIcon,
-  ProductIcon,
-  type PixelIconName,
+  FishIcon,
+  HarborIcon,
+  type HarborIconName,
 } from "./PixelIcon";
 
-export interface ManagementDrawerProps {
-  mode: DrawerMode;
-  money: number;
-  shelves: Inventory;
-  warehouse: Inventory;
-  orderDraft: OrderDraft;
-  upgrades: UpgradeLevels;
-  shelfCapacity: number;
-  onSetOrderQuantity: (productId: ProductId, quantity: number) => void;
-  onConfirmOrder: () => void;
-  onRestockOne: (productId: ProductId) => void;
-  onRestockAll: (productId: ProductId) => void;
-  onBuyUpgrade: (upgradeId: UpgradeId) => void;
-  onClose?: () => void;
-}
-
-const MODE_CONTENT: Record<
-  DrawerMode,
-  { title: string; subtitle: string; icon: PixelIconName }
-> = {
-  order: {
-    title: "进货单",
-    subtitle: "采购商品，货物会先送到仓库",
-    icon: "order",
-  },
-  restock: {
-    title: "货架补货",
-    subtitle: "从仓库把商品补到卖场货架",
-    icon: "restock",
-  },
-  upgrade: {
-    title: "店铺升级",
-    subtitle: "投资设施，让每天经营更轻松",
-    icon: "upgrade",
-  },
+const GEAR_ICONS: Record<GearId, HarborIconName> = {
+  rod: "rod",
+  reel: "reel",
+  cooler: "cooler",
+  boat: "boat",
 };
 
-const UPGRADE_IDS: readonly UpgradeId[] = [
-  "shelf",
-  "checkout",
-  "patience",
-];
-
-const UPGRADE_ICONS: Record<UpgradeId, PixelIconName> = {
-  shelf: "shelf",
-  checkout: "scanner",
-  patience: "heart",
+const BAIT_ICONS: Record<BaitId, HarborIconName> = {
+  bread: "baitWorm",
+  shrimp: "baitShrimp",
+  "glow-worm": "baitLure",
 };
 
-const moneyFormatter = new Intl.NumberFormat("zh-CN", {
-  maximumFractionDigits: 0,
-});
-
-function DrawerHeader({
-  mode,
-  onClose,
-}: Pick<ManagementDrawerProps, "mode" | "onClose">) {
-  const content = MODE_CONTENT[mode];
-
-  return (
-    <header className="management-drawer__header">
-      <span className="management-drawer__header-icon" aria-hidden="true">
-        <PixelIcon name={content.icon} size={30} />
-      </span>
-      <span className="management-drawer__heading">
-        <h2 id="management-drawer-title">{content.title}</h2>
-        <span>{content.subtitle}</span>
-      </span>
-      {onClose ? (
-        <button
-          className="icon-button management-drawer__close"
-          type="button"
-          aria-label="关闭管理面板"
-          onClick={onClose}
-        >
-          <PixelIcon name="close" size={20} />
-        </button>
-      ) : null}
-    </header>
-  );
+export interface OrdersBoardProps {
+  state: Pick<GameState, "cooler" | "orders" | "status">;
+  onFulfillOrder: (orderId: string) => void;
 }
 
-function QuantityControl({
-  productId,
-  productName,
-  quantity,
-  onChange,
-}: {
-  productId: ProductId;
-  productName: string;
-  quantity: number;
-  onChange: (productId: ProductId, quantity: number) => void;
-}) {
-  const safeQuantity = Math.min(99, Math.max(0, quantity));
-
-  return (
-    <div className="quantity-control">
-      <button
-        className="quantity-control__button"
-        type="button"
-        disabled={safeQuantity === 0}
-        aria-label={`减少一件${productName}`}
-        onClick={() => onChange(productId, safeQuantity - 1)}
-      >
-        <PixelIcon name="minus" size={14} />
-      </button>
-      <input
-        className="quantity-control__input"
-        type="number"
-        inputMode="numeric"
-        min={0}
-        max={99}
-        value={safeQuantity}
-        aria-label={`${productName}进货数量`}
-        onChange={(event) => {
-          const parsed = Number.parseInt(event.currentTarget.value, 10);
-          onChange(
-            productId,
-            Number.isFinite(parsed) ? Math.min(99, Math.max(0, parsed)) : 0,
-          );
-        }}
+function OrderArt({ order }: { order: FishingOrder }) {
+  if (order.requirement.kind === "speciesCount") {
+    const species = FISH_SPECIES[order.requirement.speciesId];
+    return (
+      <FishIcon
+        className="order-card__fish"
+        frame={species.atlasFrame}
+        name={species.name}
+        size={58}
       />
-      <button
-        className="quantity-control__button quantity-control__button--plus"
-        type="button"
-        disabled={safeQuantity >= 99}
-        aria-label={`增加一件${productName}`}
-        onClick={() => onChange(productId, safeQuantity + 1)}
-      >
-        <PixelIcon name="plus" size={14} />
-      </button>
-    </div>
+    );
+  }
+
+  return (
+    <span className="order-card__symbol" aria-hidden="true">
+      <HarborIcon
+        name={order.requirement.kind === "totalWeight" ? "fish" : "star"}
+        size={31}
+      />
+    </span>
   );
 }
 
-function OrderPanel({
-  money,
-  shelves,
-  warehouse,
-  orderDraft,
-  onSetOrderQuantity,
-  onConfirmOrder,
-}: Pick<
-  ManagementDrawerProps,
-  | "money"
-  | "shelves"
-  | "warehouse"
-  | "orderDraft"
-  | "onSetOrderQuantity"
-  | "onConfirmOrder"
->) {
-  const totalCost = PRODUCT_LIST.reduce(
-    (total, product) =>
-      total + product.unitCost * Math.max(0, orderDraft[product.id]),
-    0,
-  );
-  const totalUnits = PRODUCT_LIST.reduce(
-    (total, product) => total + Math.max(0, orderDraft[product.id]),
-    0,
-  );
-  const canAfford = totalCost <= money;
-
+export function OrdersBoard({
+  state,
+  onFulfillOrder,
+}: OrdersBoardProps) {
   return (
-    <>
-      <div className="management-list management-list--order">
-        {PRODUCT_LIST.map((product) => {
-          const currentStock =
-            Math.max(0, shelves[product.id]) + Math.max(0, warehouse[product.id]);
-
-          return (
-            <article className="management-row product-order-row" key={product.id}>
-              <ProductIcon productId={product.id} size={46} />
-              <span className="management-row__main">
-                <strong>{product.name}</strong>
-                <span>
-                  现有 {currentStock} 件
-                  <span className="management-row__price">
-                    ¥{product.unitCost}/件
-                  </span>
-                </span>
-              </span>
-              <QuantityControl
-                productId={product.id}
-                productName={product.name}
-                quantity={orderDraft[product.id]}
-                onChange={onSetOrderQuantity}
-              />
-            </article>
-          );
-        })}
-      </div>
-
-      <footer className="management-drawer__footer order-summary">
-        <span className="order-summary__total">
-          <span>合计 · {totalUnits} 件</span>
-          <strong>¥{moneyFormatter.format(totalCost)}</strong>
-        </span>
-        {!canAfford ? (
-          <span className="management-feedback management-feedback--warning" role="status">
-            现金不足，还差 ¥{moneyFormatter.format(totalCost - money)}
-          </span>
-        ) : null}
-        <button
-          className="primary-button primary-button--wide"
-          type="button"
-          disabled={totalUnits === 0 || !canAfford}
-          onClick={onConfirmOrder}
-        >
-          <PixelIcon name="check" size={20} />
-          确认进货
-        </button>
-      </footer>
-    </>
-  );
-}
-
-function RestockPanel({
-  shelves,
-  warehouse,
-  shelfCapacity,
-  onRestockOne,
-  onRestockAll,
-}: Pick<
-  ManagementDrawerProps,
-  | "shelves"
-  | "warehouse"
-  | "shelfCapacity"
-  | "onRestockOne"
-  | "onRestockAll"
->) {
-  const safeCapacity = Math.max(1, shelfCapacity);
-  const warehouseUnits = PRODUCT_LIST.reduce(
-    (total, product) => total + Math.max(0, warehouse[product.id]),
-    0,
-  );
-
-  return (
-    <>
-      <div className="restock-summary">
-        <PixelIcon name="warehouse" size={24} />
+    <aside className="orders-board" aria-labelledby="orders-title">
+      <header className="wood-sign-title">
         <span>
-          仓库共有 <strong>{warehouseUnits}</strong> 件商品
+          <HarborIcon name="harbor" size={24} />
+          <strong id="orders-title">今日订单</strong>
         </span>
-      </div>
+        <small>留鱼交付，收益更高</small>
+      </header>
 
-      <div className="management-list management-list--restock">
-        {PRODUCT_LIST.map((product) => {
-          const shelfStock = Math.max(0, shelves[product.id]);
-          const warehouseStock = Math.max(0, warehouse[product.id]);
-          const openShelfSlots = Math.max(0, safeCapacity - shelfStock);
-          const restockableUnits = Math.min(warehouseStock, openShelfSlots);
-          const shelfPercent = Math.min(100, (shelfStock / safeCapacity) * 100);
-          const unavailableReason =
-            warehouseStock === 0 ? "仓库无库存" : "货架已满";
-
+      <div className="orders-list">
+        {state.orders.map((order) => {
+          const progress = getOrderProgress(state, order);
+          const fulfillable = canFulfillOrder(state, order);
           return (
-            <article className="management-row restock-row" key={product.id}>
-              <ProductIcon productId={product.id} size={46} />
-              <span className="management-row__main restock-row__stock">
-                <strong>{product.name}</strong>
-                <span className="restock-row__numbers">
-                  仓库 {warehouseStock}
-                  <span aria-hidden="true"> · </span>
-                  货架 {shelfStock}/{safeCapacity}
+            <article
+              className={[
+                "order-card",
+                order.fulfilled ? "is-fulfilled" : "",
+                fulfillable ? "is-ready" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              key={order.id}
+            >
+              <OrderArt order={order} />
+              <div className="order-card__body">
+                <span className="order-card__customer">
+                  {order.customerName}
                 </span>
-                <span
-                  className="stock-meter"
-                  role="progressbar"
-                  aria-label={`${product.name}货架库存`}
-                  aria-valuemin={0}
-                  aria-valuemax={safeCapacity}
-                  aria-valuenow={shelfStock}
-                >
+                <strong>{order.title}</strong>
+                <p>{order.description}</p>
+                <div className="order-progress">
                   <span
-                    className={[
-                      "stock-meter__fill",
-                      shelfStock === 0 ? "stock-meter__fill--empty" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    style={{ width: `${shelfPercent}%` }}
-                  />
-                </span>
-              </span>
-              <span className="restock-row__actions">
-                <button
-                  className="secondary-button secondary-button--small"
-                  type="button"
-                  disabled={restockableUnits === 0}
-                  title={restockableUnits === 0 ? unavailableReason : undefined}
-                  aria-label={`给${product.name}货架补一件`}
-                  onClick={() => onRestockOne(product.id)}
-                >
-                  +1
-                </button>
-                <button
-                  className="secondary-button secondary-button--small"
-                  type="button"
-                  disabled={restockableUnits === 0}
-                  title={restockableUnits === 0 ? unavailableReason : undefined}
-                  aria-label={`补满${product.name}货架，最多补${restockableUnits}件`}
-                  onClick={() => onRestockAll(product.id)}
-                >
-                  补满
-                </button>
-              </span>
+                    className="order-progress__track"
+                    role="progressbar"
+                    aria-label={`${order.title}完成进度`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(progress.ratio * 100)}
+                  >
+                    <span style={{ width: `${progress.ratio * 100}%` }} />
+                  </span>
+                  <b>{progress.label}</b>
+                </div>
+              </div>
+              <button
+                className="order-card__action"
+                type="button"
+                disabled={
+                  order.fulfilled ||
+                  !fulfillable ||
+                  state.status === "paused"
+                }
+                onClick={() => onFulfillOrder(order.id)}
+              >
+                {order.fulfilled ? (
+                  <>
+                    <HarborIcon name="check" size={16} />
+                    已交付
+                  </>
+                ) : (
+                  <>
+                    <HarborIcon name="coin" size={16} />
+                    {order.rewardCoins}
+                  </>
+                )}
+              </button>
             </article>
           );
         })}
       </div>
-    </>
+
+      <footer className="orders-board__footer">
+        <HarborIcon name="star" size={17} />
+        订单还会带来经验和港口声望
+      </footer>
+    </aside>
   );
 }
 
-function UpgradePanel({
-  money,
-  upgrades,
-  onBuyUpgrade,
-}: Pick<
-  ManagementDrawerProps,
-  "money" | "upgrades" | "onBuyUpgrade"
->) {
-  return (
-    <div className="management-list management-list--upgrades">
-      {UPGRADE_IDS.map((upgradeId) => {
-        const config = UPGRADE_CONFIG[upgradeId];
-        const level = Math.min(config.maxLevel, Math.max(0, upgrades[upgradeId]));
-        const isMaxLevel = level >= config.maxLevel;
-        const nextCost = isMaxLevel ? null : config.costs[level];
-        const canAfford = nextCost !== null && money >= nextCost;
+export interface GearWorkshopProps {
+  state: Pick<
+    GameState,
+    | "gear"
+    | "money"
+    | "status"
+    | "phase"
+    | "locationId"
+    | "baitInventory"
+  >;
+  onBuyGear: (gearId: GearId) => void;
+  onSelectLocation: (locationId: LocationId) => void;
+  onBuyBait: (baitId: BaitId) => void;
+}
 
-        return (
-          <article className="upgrade-card" key={upgradeId}>
-            <span className={`upgrade-card__icon upgrade-card__icon--${upgradeId}`}>
-              <PixelIcon name={UPGRADE_ICONS[upgradeId]} size={34} />
-            </span>
-            <span className="upgrade-card__content">
-              <span className="upgrade-card__title-row">
-                <strong>{config.name}</strong>
-                <span className="upgrade-level" aria-label={`当前 ${level} 级，最高 ${config.maxLevel} 级`}>
-                  {Array.from({ length: config.maxLevel }, (_, index) => (
-                    <span
-                      className={
-                        index < level
-                          ? "upgrade-level__pip upgrade-level__pip--filled"
-                          : "upgrade-level__pip"
-                      }
-                      key={index}
-                      aria-hidden="true"
-                    />
-                  ))}
+export function GearWorkshop({
+  state,
+  onBuyGear,
+  onSelectLocation,
+  onBuyBait,
+}: GearWorkshopProps) {
+  const canManage = state.status !== "paused" && state.phase === "idle";
+
+  return (
+    <aside className="gear-workshop" aria-labelledby="workshop-title">
+      <header className="wood-sign-title">
+        <span>
+          <HarborIcon name="settings" size={24} />
+          <strong id="workshop-title">装备工坊</strong>
+        </span>
+        <small>升级会永久保留</small>
+      </header>
+
+      <div className="gear-list">
+        {GEAR_LIST.map((gear) => {
+          const level = state.gear[gear.id];
+          const upgradeCost = getGearUpgradeCost(state, gear.id);
+          const maxed = upgradeCost === null;
+          return (
+            <article className="gear-row" key={gear.id}>
+              <HarborIcon
+                className={`gear-row__icon gear-row__icon--${gear.id}`}
+                name={GEAR_ICONS[gear.id]}
+                size={38}
+              />
+              <div className="gear-row__copy">
+                <span>
+                  <strong>{gear.name}</strong>
+                  <b>Lv.{level}</b>
                 </span>
-              </span>
-              <span className="upgrade-card__description">
-                {config.description}
-              </span>
-            </span>
-            <button
-              className="primary-button upgrade-card__button"
-              type="button"
-              disabled={isMaxLevel || !canAfford}
-              title={
-                isMaxLevel
-                  ? "已升至最高等级"
-                  : !canAfford
-                    ? `还差 ¥${moneyFormatter.format((nextCost ?? 0) - money)}`
-                    : undefined
-              }
-              onClick={() => onBuyUpgrade(upgradeId)}
-            >
-              {isMaxLevel ? (
-                <>
-                  <PixelIcon name="star" size={16} />
-                  已满级
-                </>
-              ) : (
-                <>
-                  <PixelIcon name="coin" size={16} />
-                  ¥{moneyFormatter.format(nextCost ?? 0)}
-                </>
-              )}
-            </button>
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-export function ManagementDrawer(props: ManagementDrawerProps) {
-  return (
-    <aside
-      className={`management-drawer management-drawer--${props.mode}`}
-      aria-labelledby="management-drawer-title"
-    >
-      <DrawerHeader mode={props.mode} onClose={props.onClose} />
-      <div className="management-drawer__body">
-        {props.mode === "order" ? (
-          <OrderPanel
-            money={props.money}
-            shelves={props.shelves}
-            warehouse={props.warehouse}
-            orderDraft={props.orderDraft}
-            onSetOrderQuantity={props.onSetOrderQuantity}
-            onConfirmOrder={props.onConfirmOrder}
-          />
-        ) : null}
-        {props.mode === "restock" ? (
-          <RestockPanel
-            shelves={props.shelves}
-            warehouse={props.warehouse}
-            shelfCapacity={props.shelfCapacity}
-            onRestockOne={props.onRestockOne}
-            onRestockAll={props.onRestockAll}
-          />
-        ) : null}
-        {props.mode === "upgrade" ? (
-          <UpgradePanel
-            money={props.money}
-            upgrades={props.upgrades}
-            onBuyUpgrade={props.onBuyUpgrade}
-          />
-        ) : null}
+                <p>{gear.benefitLabels[level - 1]}</p>
+              </div>
+              <button
+                type="button"
+                disabled={
+                  !canManage ||
+                  maxed ||
+                  (upgradeCost !== null && state.money < upgradeCost)
+                }
+                onClick={() => onBuyGear(gear.id)}
+              >
+                {maxed ? (
+                  <>
+                    <HarborIcon name="check" size={15} />
+                    满级
+                  </>
+                ) : (
+                  <>
+                    升级
+                    <span>
+                      <HarborIcon name="coin" size={14} />
+                      {upgradeCost}
+                    </span>
+                  </>
+                )}
+              </button>
+            </article>
+          );
+        })}
       </div>
+
+      <section className="location-switcher" aria-labelledby="location-title">
+        <div className="mini-section-title" id="location-title">
+          <HarborIcon name="map" size={19} />
+          选择钓点
+        </div>
+        <div className="location-list">
+          {LOCATION_LIST.map((location) => {
+            const unlock = getLocationUnlockState(state, location.id);
+            return (
+              <button
+                className={unlock.selected ? "is-selected" : ""}
+                type="button"
+                key={location.id}
+                disabled={!canManage || !unlock.unlocked}
+                aria-pressed={unlock.selected}
+                title={location.description}
+                onClick={() => onSelectLocation(location.id)}
+              >
+                {!unlock.unlocked ? (
+                  <HarborIcon name="lock" size={16} />
+                ) : (
+                  <HarborIcon name="anchor" size={16} />
+                )}
+                <span>{location.name}</span>
+                {!unlock.unlocked ? <small>船 Lv.{location.requiredBoatLevel}</small> : null}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="bait-supply" aria-labelledby="bait-supply-title">
+        <div className="mini-section-title" id="bait-supply-title">
+          <HarborIcon name="plus" size={18} />
+          补给鱼饵
+        </div>
+        <div className="bait-supply__list">
+          {BAIT_LIST.map((bait) => (
+            <button
+              type="button"
+              key={bait.id}
+              disabled={!canManage || state.money < bait.price}
+              title={`${bait.description}，购买 1 份`}
+              onClick={() => onBuyBait(bait.id)}
+            >
+              <HarborIcon name={BAIT_ICONS[bait.id]} size={20} />
+              <span>
+                {bait.name}
+                <small>现有 {state.baitInventory[bait.id]}</small>
+              </span>
+              <b>
+                <HarborIcon name="coin" size={13} />
+                {bait.price}
+              </b>
+            </button>
+          ))}
+        </div>
+      </section>
     </aside>
   );
 }

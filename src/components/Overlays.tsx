@@ -1,42 +1,99 @@
-import type { DayStats, GameToast } from "../game/types";
-import { PixelIcon, type PixelIconName } from "./PixelIcon";
-
-const moneyFormatter = new Intl.NumberFormat("zh-CN", {
-  maximumFractionDigits: 0,
-});
-
-function normalizeReputation(reputation: number) {
-  return Math.min(5, Math.max(0, reputation > 5 ? reputation / 20 : reputation));
-}
+import { useEffect, useRef, type ReactNode } from "react";
+import {
+  FISH_SPECIES,
+  FISH_SPECIES_LIST,
+  LOCATIONS,
+  RARITY_LABEL,
+  WEATHERS,
+} from "../data/fishing";
+import type {
+  CaughtFish,
+  DaySummary,
+  FishSpeciesId,
+  GameToast,
+} from "../game/types";
+import { FishIcon, HarborIcon, type HarborIconName } from "./PixelIcon";
 
 interface ModalShellProps {
-  className?: string;
   labelledBy: string;
-  children: React.ReactNode;
-  onBackdropClick?: () => void;
+  className?: string;
+  children: ReactNode;
+  onClose?: () => void;
 }
 
 function ModalShell({
-  className,
   labelledBy,
+  className,
   children,
-  onBackdropClick,
+  onClose,
 }: ModalShellProps) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const dialog = dialogRef.current;
+    const focusableSelector =
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusFirst = window.requestAnimationFrame(() => {
+      const firstFocusable =
+        dialog?.querySelector<HTMLElement>(focusableSelector);
+      (firstFocusable ?? dialog)?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && onCloseRef.current) {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog) return;
+
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(focusableSelector),
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFirst);
+      window.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus();
+    };
+  }, []);
+
   return (
     <div
       className="overlay-backdrop"
       role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onBackdropClick?.();
-        }
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
       }}
     >
       <section
+        ref={dialogRef}
         className={["game-modal", className].filter(Boolean).join(" ")}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
+        tabIndex={-1}
       >
         {children}
       </section>
@@ -47,32 +104,32 @@ function ModalShell({
 const TUTORIAL_STEPS: ReadonlyArray<{
   title: string;
   description: string;
-  hint: string;
-  icon: PixelIconName;
+  tip: string;
+  icon: HarborIconName;
 }> = [
   {
-    title: "先备好今天的货",
-    description: "打开「进货」，选择每种商品的数量。确认后，货物会送到仓库。",
-    hint: "先少量采购，留些现金应对升级。",
-    icon: "order",
+    title: "选好鱼饵，准备出海",
+    description: "海蚯蚓适合常见鱼，鲜虾和星光虫更容易引来稀有渔获。",
+    tip: "右侧补给架可以随时购买鱼饵。",
+    icon: "baitShrimp",
   },
   {
-    title: "把商品摆上货架",
-    description: "仓库里的货还不能出售。打开「补货」，逐件补充或一键补满货架。",
-    hint: "看到缺货提示时，要尽快补货。",
-    icon: "restock",
+    title: "按住蓄力，松开甩竿",
+    description: "蓄力条进入黄色区域时松手，浮标会落到鱼群更活跃的水域。",
+    tip: "也可以点击水面，用固定力度快速出竿。",
+    icon: "rod",
   },
   {
-    title: "照顾每一位顾客",
-    description: "小动物会自己挑选商品并排队。缺货或等待太久都会降低口碑。",
-    hint: "五颗爱心代表店铺口碑。",
-    icon: "heart",
+    title: "看到叹号，马上扬竿",
+    description: "中鱼后按住收线、松开降张力。让指针留在绿色安全区，进度满了就能起鱼。",
+    tip: "卷线器升级后，安全区会明显变宽。",
+    icon: "reel",
   },
   {
-    title: "及时收银，持续升级",
-    description: "顾客到达收银台后，及时完成结账。赚到的钱可以升级货架、收银和队列。",
-    hint: "完成三天目标，成为金牌店长！",
-    icon: "scanner",
+    title: "留鱼交订单，赚得更多",
+    description: "渔获可以立刻出售，也能放进冷藏箱等待高价订单。金币用于装备和渔船升级。",
+    tip: "升级渔船会解锁珊瑚礁与月光深海。",
+    icon: "harbor",
   },
 ];
 
@@ -92,59 +149,113 @@ export function TutorialOverlay({
     Math.max(0, Math.floor(step)),
   );
   const content = TUTORIAL_STEPS[safeStep];
-  const isLastStep = safeStep === TUTORIAL_STEPS.length - 1;
+  const last = safeStep === TUTORIAL_STEPS.length - 1;
 
   return (
-    <ModalShell className="tutorial-modal" labelledBy="tutorial-title">
-      <div className="tutorial-modal__art" aria-hidden="true">
-        <span className="tutorial-modal__icon">
-          <PixelIcon name={content.icon} size={58} />
-        </span>
-        <span className="tutorial-modal__spark tutorial-modal__spark--one">
-          <PixelIcon name="star" size={16} />
-        </span>
-        <span className="tutorial-modal__spark tutorial-modal__spark--two">
-          <PixelIcon name="star" size={11} />
-        </span>
+    <ModalShell labelledBy="tutorial-title" className="tutorial-modal">
+      <div className="tutorial-modal__illustration" aria-hidden="true">
+        <HarborIcon name={content.icon} size={72} />
+        <span className="tutorial-water-line" />
       </div>
-
-      <div className="tutorial-modal__step">
-        新手指南 {safeStep + 1}/{TUTORIAL_STEPS.length}
+      <div className="tutorial-modal__count">
+        {safeStep + 1} / {TUTORIAL_STEPS.length}
       </div>
       <h2 id="tutorial-title">{content.title}</h2>
       <p>{content.description}</p>
-      <div className="tutorial-modal__hint">
-        <PixelIcon name="acorn" size={18} />
-        <span>{content.hint}</span>
+      <div className="tutorial-modal__tip">
+        <HarborIcon name="sparkle" size={18} />
+        {content.tip}
       </div>
-
-      <div
-        className="tutorial-modal__progress"
-        aria-label={`新手指南第 ${safeStep + 1} 步，共 ${TUTORIAL_STEPS.length} 步`}
-      >
-        {TUTORIAL_STEPS.map((tutorialStep, index) => (
-          <span
-            className={
-              index === safeStep
-                ? "tutorial-modal__dot tutorial-modal__dot--active"
-                : "tutorial-modal__dot"
-            }
-            key={tutorialStep.title}
-            aria-hidden="true"
-          />
+      <div className="tutorial-modal__steps" aria-hidden="true">
+        {TUTORIAL_STEPS.map((item, index) => (
+          <span className={index <= safeStep ? "is-active" : ""} key={item.title} />
         ))}
       </div>
-
       <footer className="game-modal__actions">
-        <button className="text-button" type="button" onClick={onSkip}>
+        <button className="quiet-action" type="button" onClick={onSkip}>
           跳过指南
         </button>
-        <button className="primary-button" type="button" onClick={onNext}>
-          {isLastStep ? "开始营业" : "下一步"}
-          <PixelIcon
-            name={isLastStep ? "check" : "arrowRight"}
-            size={18}
-          />
+        <button className="primary-action" type="button" onClick={onNext}>
+          {last ? "开始第一竿" : "下一步"}
+          <HarborIcon name={last ? "check" : "arrowRight"} size={18} />
+        </button>
+      </footer>
+    </ModalShell>
+  );
+}
+
+export interface CatchModalProps {
+  fish: CaughtFish;
+  coolerCount: number;
+  coolerCapacity: number;
+  onStore: () => void;
+  onSell: () => void;
+}
+
+export function CatchModal({
+  fish,
+  coolerCount,
+  coolerCapacity,
+  onStore,
+  onSell,
+}: CatchModalProps) {
+  const species = FISH_SPECIES[fish.speciesId];
+  const coolerFull = coolerCount >= coolerCapacity;
+
+  return (
+    <ModalShell labelledBy="catch-title" className="catch-modal">
+      <div className="catch-modal__burst" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
+      <div className="catch-modal__fish">
+        <FishIcon frame={fish.atlasFrame} name={species.name} size={230} />
+      </div>
+      <div className="catch-modal__copy">
+        <span className={`rarity-label rarity-${fish.rarity}`}>
+          {RARITY_LABEL[fish.rarity]}
+          {fish.isTrophy ? " · 新纪录" : ""}
+        </span>
+        <h2 id="catch-title">{species.name}</h2>
+        <p>{species.description}</p>
+        <dl className="catch-stats">
+          <div>
+            <dt>重量</dt>
+            <dd>{fish.weight.toFixed(2)} kg</dd>
+          </div>
+          <div>
+            <dt>码头价</dt>
+            <dd>
+              <HarborIcon name="coin" size={18} />
+              {fish.value}
+            </dd>
+          </div>
+        </dl>
+      </div>
+      <footer className="catch-modal__actions">
+        <button
+          className="store-catch-action"
+          type="button"
+          disabled={coolerFull}
+          onClick={onStore}
+        >
+          <HarborIcon name="cooler" size={24} />
+          <span>
+            放入冷藏箱
+            <small>
+              {coolerFull
+                ? "容量已满"
+                : `${coolerCount + 1}/${coolerCapacity} · 可交订单`}
+            </small>
+          </span>
+        </button>
+        <button className="sell-catch-action" type="button" onClick={onSell}>
+          立即卖出
+          <strong>
+            <HarborIcon name="coin" size={17} />
+            {fish.value}
+          </strong>
         </button>
       </footer>
     </ModalShell>
@@ -152,209 +263,209 @@ export function TutorialOverlay({
 }
 
 export interface DayEndModalProps {
-  day: number;
-  stats: DayStats;
-  totalProfit: number;
-  reputation: number;
-  nextDayTarget?: number;
+  summary: DaySummary;
   onContinue: () => void;
 }
 
 export function DayEndModal({
-  day,
-  stats,
-  totalProfit,
-  reputation,
-  nextDayTarget,
+  summary,
   onContinue,
 }: DayEndModalProps) {
-  const profit = stats.revenue - stats.costs;
-  const reputationScore = normalizeReputation(reputation);
-  const isFinalDay = day >= 3;
+  const weather = WEATHERS[summary.weatherId];
+  const location = LOCATIONS[summary.locationId];
 
   return (
-    <ModalShell className="day-end-modal" labelledBy="day-end-title">
-      <header className="result-header">
-        <span className="result-header__icon" aria-hidden="true">
-          <PixelIcon name={profit >= 0 ? "star" : "reset"} size={44} />
-        </span>
+    <ModalShell labelledBy="day-end-title" className="day-end-modal">
+      <header className="day-end-header">
+        <HarborIcon name="sun" size={43} />
         <span>
-          <span className="result-header__eyebrow">第 {day} 天打烊</span>
-          <h2 id="day-end-title">
-            {profit >= 0 ? "今天辛苦啦！" : "明天再加把劲"}
-          </h2>
+          <small>第 {summary.day} 天收竿</small>
+          <h2 id="day-end-title">今天的海风很慷慨</h2>
         </span>
       </header>
-
-      <dl className="result-grid" aria-label="今日经营结算">
-        <div className="result-stat">
-          <dt>营业额</dt>
-          <dd>¥{moneyFormatter.format(stats.revenue)}</dd>
+      <p className="day-end-location">
+        {location.name} · {weather.name}
+      </p>
+      <dl className="day-results">
+        <div>
+          <dt>捕获</dt>
+          <dd>{summary.stats.caught} 条</dd>
         </div>
-        <div className="result-stat">
-          <dt>进货成本</dt>
-          <dd>−¥{moneyFormatter.format(stats.costs)}</dd>
+        <div>
+          <dt>总重</dt>
+          <dd>{summary.stats.totalWeight.toFixed(1)} kg</dd>
         </div>
-        <div
-          className={[
-            "result-stat",
-            "result-stat--featured",
-            profit < 0 ? "result-stat--negative" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-          <dt>今日利润</dt>
-          <dd>
-            {profit < 0 ? "−" : "+"}¥{moneyFormatter.format(Math.abs(profit))}
-          </dd>
+        <div>
+          <dt>今日收入</dt>
+          <dd>{summary.stats.revenue}</dd>
         </div>
-        <div className="result-stat">
-          <dt>服务顾客</dt>
-          <dd>{stats.served} 位</dd>
+        <div>
+          <dt>完成订单</dt>
+          <dd>{summary.stats.ordersFulfilled} 份</dd>
         </div>
-        <div className="result-stat">
-          <dt>流失顾客</dt>
-          <dd>{stats.lost} 位</dd>
+        <div>
+          <dt>最重渔获</dt>
+          <dd>{summary.stats.heaviestCatch.toFixed(2)} kg</dd>
         </div>
-        <div className="result-stat">
-          <dt>售出商品</dt>
-          <dd>{stats.itemsSold} 件</dd>
+        <div>
+          <dt>获得经验</dt>
+          <dd>+{summary.stats.xpEarned}</dd>
         </div>
       </dl>
-
-      <div className="result-summary">
-        <span>
-          累计利润
-          <strong>
-            {totalProfit < 0 ? "−" : ""}¥
-            {moneyFormatter.format(Math.abs(totalProfit))}
-          </strong>
-        </span>
-        <span>
-          当前口碑
-          <strong>{reputationScore.toFixed(1)} / 5</strong>
-        </span>
+      <div className="day-end-balance">
+        <span>带回港口</span>
+        <strong>
+          <HarborIcon name="coin" size={22} />
+          {summary.endingMoney}
+        </strong>
+        <small>鱼舱还留有 {summary.coolerCount} 条鱼</small>
       </div>
-
-      {nextDayTarget !== undefined && !isFinalDay ? (
-        <p className="next-day-target">
-          <PixelIcon name="target" size={19} />
-          明日营业额目标：¥{moneyFormatter.format(nextDayTarget)}
-        </p>
-      ) : null}
-
       <footer className="game-modal__actions game-modal__actions--center">
-        <button className="primary-button primary-button--wide" type="button" onClick={onContinue}>
-          {isFinalDay ? "查看最终成绩" : `开始第 ${day + 1} 天`}
-          <PixelIcon name="arrowRight" size={19} />
+        <button className="primary-action" type="button" onClick={onContinue}>
+          迎接第 {summary.day + 1} 天
+          <HarborIcon name="arrowRight" size={18} />
         </button>
       </footer>
     </ModalShell>
   );
 }
 
-export interface GameEndModalProps {
-  totalProfit: number;
-  reputation: number;
-  totalRevenue: number;
-  totalServed: number;
-  totalLost: number;
-  onRestart: () => void;
+export interface CollectionModalProps {
+  discovered: readonly FishSpeciesId[];
+  bestWeights: Partial<Record<FishSpeciesId, number>>;
+  onClose: () => void;
 }
 
-type GameOutcome = "win" | "steady" | "loss";
-
-function getGameOutcome(
-  totalProfit: number,
-  reputation: number,
-): {
-  id: GameOutcome;
-  title: string;
-  message: string;
-  icon: PixelIconName;
-} {
-  const reputationScore = normalizeReputation(reputation);
-
-  if (totalProfit >= 600 && reputationScore >= 4) {
-    return {
-      id: "win",
-      title: "金牌店长！",
-      message: "三天经营大获成功，松果小市已经成为动物街最受欢迎的超市。",
-      icon: "star",
-    };
-  }
-
-  if (totalProfit >= 200 && reputationScore >= 2.5) {
-    return {
-      id: "steady",
-      title: "小店站稳脚跟",
-      message: "你顺利完成了三天试营业。再优化库存和收银节奏，就能创造更好的成绩。",
-      icon: "acorn",
-    };
-  }
-
-  return {
-    id: "loss",
-    title: "重新整装开店",
-    message: "这次经营还没达到预期。少量多次进货、及时补货，会让现金和口碑更健康。",
-    icon: "reset",
-  };
-}
-
-export function GameEndModal({
-  totalProfit,
-  reputation,
-  totalRevenue,
-  totalServed,
-  totalLost,
-  onRestart,
-}: GameEndModalProps) {
-  const reputationScore = normalizeReputation(reputation);
-  const outcome = getGameOutcome(totalProfit, reputation);
+export function CollectionModal({
+  discovered,
+  bestWeights,
+  onClose,
+}: CollectionModalProps) {
+  const discoveredSet = new Set(discovered);
 
   return (
     <ModalShell
-      className={`game-end-modal game-end-modal--${outcome.id}`}
-      labelledBy="game-end-title"
+      labelledBy="collection-title"
+      className="collection-modal"
+      onClose={onClose}
     >
-      <div className="game-end-modal__badge" aria-hidden="true">
-        <PixelIcon name={outcome.icon} size={56} />
-      </div>
-      <span className="game-end-modal__eyebrow">三日经营挑战完成</span>
-      <h2 id="game-end-title">{outcome.title}</h2>
-      <p className="game-end-modal__message">{outcome.message}</p>
-
-      <dl className="final-score" aria-label="三日经营总成绩">
-        <div>
-          <dt>累计营业额</dt>
-          <dd>¥{moneyFormatter.format(totalRevenue)}</dd>
-        </div>
-        <div>
-          <dt>累计利润</dt>
-          <dd>
-            {totalProfit < 0 ? "−" : ""}¥
-            {moneyFormatter.format(Math.abs(totalProfit))}
-          </dd>
-        </div>
-        <div>
-          <dt>最终口碑</dt>
-          <dd>{reputationScore.toFixed(1)} / 5</dd>
-        </div>
-        <div>
-          <dt>服务 / 流失</dt>
-          <dd>
-            {totalServed} / {totalLost} 位
-          </dd>
-        </div>
-      </dl>
-
-      <footer className="game-modal__actions game-modal__actions--center">
-        <button className="primary-button primary-button--wide" type="button" onClick={onRestart}>
-          <PixelIcon name="reset" size={20} />
-          重新挑战
+      <header className="modal-heading">
+        <span>
+          <HarborIcon name="book" size={29} />
+          <h2 id="collection-title">海洋图鉴</h2>
+        </span>
+        <button type="button" aria-label="关闭图鉴" onClick={onClose}>
+          <HarborIcon name="close" size={21} />
         </button>
-      </footer>
+      </header>
+      <p className="collection-intro">
+        已发现 {discovered.length}/{FISH_SPECIES_LIST.length} 种。升级渔船，驶向更远的水域。
+      </p>
+      <div className="collection-grid">
+        {FISH_SPECIES_LIST.map((species) => {
+          const found = discoveredSet.has(species.id);
+          return (
+            <article className={found ? "is-found" : "is-hidden"} key={species.id}>
+              <div className="collection-fish">
+                <FishIcon
+                  frame={species.atlasFrame}
+                  name={found ? species.name : "未发现鱼种"}
+                  size={108}
+                />
+                {!found ? <HarborIcon name="lock" size={25} /> : null}
+              </div>
+              <span className={`rarity-label rarity-${species.rarity}`}>
+                {found ? RARITY_LABEL[species.rarity] : "未发现"}
+              </span>
+              <strong>{found ? species.name : "？？？"}</strong>
+              <p>{found ? species.description : "海图上还没有它的记录。"}</p>
+              <small>
+                最佳纪录：
+                {found && bestWeights[species.id]
+                  ? `${bestWeights[species.id]?.toFixed(2)} kg`
+                  : "--"}
+              </small>
+            </article>
+          );
+        })}
+      </div>
+    </ModalShell>
+  );
+}
+
+export interface CoolerModalProps {
+  fish: readonly CaughtFish[];
+  capacity: number;
+  onSell: (catchId: string) => void;
+  onSellAll: () => void;
+  onClose: () => void;
+}
+
+export function CoolerModal({
+  fish,
+  capacity,
+  onSell,
+  onSellAll,
+  onClose,
+}: CoolerModalProps) {
+  const totalValue = fish.reduce((sum, item) => sum + item.value, 0);
+
+  return (
+    <ModalShell
+      labelledBy="cooler-title"
+      className="cooler-modal"
+      onClose={onClose}
+    >
+      <header className="modal-heading">
+        <span>
+          <HarborIcon name="cooler" size={29} />
+          <h2 id="cooler-title">冷藏鱼舱</h2>
+        </span>
+        <button type="button" aria-label="关闭鱼舱" onClick={onClose}>
+          <HarborIcon name="close" size={21} />
+        </button>
+      </header>
+      <div className="cooler-modal__summary">
+        <span>
+          已用 <strong>{fish.length}/{capacity}</strong>
+        </span>
+        <span>
+          即时售价 <strong>{totalValue}</strong>
+        </span>
+        <button type="button" disabled={fish.length === 0} onClick={onSellAll}>
+          全部卖出
+        </button>
+      </div>
+      {fish.length === 0 ? (
+        <div className="cooler-empty">
+          <HarborIcon name="fish" size={46} />
+          <strong>鱼舱还是空的</strong>
+          <span>去海面甩出今天的第一竿吧。</span>
+        </div>
+      ) : (
+        <div className="cooler-list">
+          {fish.map((item) => {
+            const species = FISH_SPECIES[item.speciesId];
+            return (
+              <article key={item.id}>
+                <FishIcon frame={item.atlasFrame} name={species.name} size={84} />
+                <span>
+                  <small>{RARITY_LABEL[item.rarity]}</small>
+                  <strong>{species.name}</strong>
+                  <b>{item.weight.toFixed(2)} kg</b>
+                </span>
+                <button type="button" onClick={() => onSell(item.id)}>
+                  卖出
+                  <strong>
+                    <HarborIcon name="coin" size={15} />
+                    {item.value}
+                  </strong>
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </ModalShell>
   );
 }
@@ -374,121 +485,73 @@ export function SettingsModal({
 }: SettingsModalProps) {
   return (
     <ModalShell
-      className="settings-modal"
       labelledBy="settings-title"
-      onBackdropClick={onClose}
+      className="settings-modal"
+      onClose={onClose}
     >
-      <header className="settings-modal__header">
+      <header className="modal-heading">
         <span>
-          <span className="settings-modal__eyebrow">游戏选项</span>
-          <h2 id="settings-title">设置</h2>
+          <HarborIcon name="settings" size={28} />
+          <h2 id="settings-title">游戏设置</h2>
         </span>
-        <button
-          className="icon-button"
-          type="button"
-          aria-label="关闭设置"
-          onClick={onClose}
-        >
-          <PixelIcon name="close" size={20} />
+        <button type="button" aria-label="关闭设置" onClick={onClose}>
+          <HarborIcon name="close" size={21} />
         </button>
       </header>
-
-      <div className="settings-list">
-        <div className="settings-row">
-          <span className="settings-row__icon">
-            <PixelIcon
-              name={soundEnabled ? "soundOn" : "soundOff"}
-              size={26}
-            />
-          </span>
-          <span className="settings-row__copy">
-            <strong>游戏音效</strong>
-            <span>{soundEnabled ? "按钮与经营反馈音已开启" : "当前为静音模式"}</span>
-          </span>
-          <button
-            className={[
-              "toggle-button",
-              soundEnabled ? "toggle-button--on" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            type="button"
-            role="switch"
-            aria-checked={soundEnabled}
-            aria-label="游戏音效"
-            onClick={onToggleSound}
-          >
-            <span className="toggle-button__thumb" aria-hidden="true" />
-            <span className="sr-only">{soundEnabled ? "已开启" : "已关闭"}</span>
-          </button>
-        </div>
-
-        <div className="settings-row settings-row--danger">
-          <span className="settings-row__icon">
-            <PixelIcon name="reset" size={26} />
-          </span>
-          <span className="settings-row__copy">
-            <strong>重新开始</strong>
-            <span>清除当前三天挑战的进度与存档</span>
-          </span>
-          <button
-            className="danger-button"
-            type="button"
-            onClick={onClearSave}
-          >
-            清除存档
-          </button>
-        </div>
-      </div>
-
-      <footer className="game-modal__actions game-modal__actions--end">
-        <button className="secondary-button" type="button" onClick={onClose}>
-          返回游戏
+      <div className="settings-row">
+        <HarborIcon name={soundEnabled ? "soundOn" : "soundOff"} size={28} />
+        <span>
+          <strong>游戏音效</strong>
+          <small>{soundEnabled ? "水花、收线与金币反馈已开启" : "当前保持安静"}</small>
+        </span>
+        <button
+          className={soundEnabled ? "is-on" : ""}
+          type="button"
+          role="switch"
+          aria-checked={soundEnabled}
+          onClick={onToggleSound}
+        >
+          <span />
+          {soundEnabled ? "开启" : "关闭"}
         </button>
-      </footer>
+      </div>
+      <div className="settings-danger">
+        <span>
+          <strong>重新开始</strong>
+          <small>清除本机存档，金币、图鉴与升级都会重置。</small>
+        </span>
+        <button type="button" onClick={onClearSave}>
+          清除存档
+        </button>
+      </div>
     </ModalShell>
   );
 }
 
 export interface ToastProps {
   toast: GameToast | null;
-  onDismiss?: (toastId: number) => void;
+  onDismiss: () => void;
 }
 
-const TOAST_ICONS: Record<GameToast["kind"], PixelIconName> = {
-  success: "check",
-  warning: "star",
-  info: "acorn",
-};
-
 export function Toast({ toast, onDismiss }: ToastProps) {
+  if (!toast) return null;
+  const icon: HarborIconName =
+    toast.kind === "success"
+      ? "check"
+      : toast.kind === "warning"
+        ? "hook"
+        : "sparkle";
+
   return (
-    <div
-      className="toast-region"
-      aria-live={toast?.kind === "warning" ? "assertive" : "polite"}
-      aria-atomic="true"
+    <button
+      className={`game-toast game-toast--${toast.kind}`}
+      type="button"
+      role="status"
+      onClick={onDismiss}
     >
-      {toast ? (
-        <div
-          className={`game-toast game-toast--${toast.kind}`}
-          role={toast.kind === "warning" ? "alert" : "status"}
-        >
-          <span className="game-toast__icon" aria-hidden="true">
-            <PixelIcon name={TOAST_ICONS[toast.kind]} size={20} />
-          </span>
-          <span className="game-toast__message">{toast.message}</span>
-          {onDismiss ? (
-            <button
-              className="game-toast__close"
-              type="button"
-              aria-label="关闭提示"
-              onClick={() => onDismiss(toast.id)}
-            >
-              <PixelIcon name="close" size={14} />
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+      <HarborIcon name={icon} size={20} />
+      <span>{toast.message}</span>
+      <HarborIcon name="close" size={15} />
+    </button>
   );
 }

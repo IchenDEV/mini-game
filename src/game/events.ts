@@ -1,11 +1,38 @@
 import Phaser from "phaser";
-import type { Customer, SalePulse } from "./types";
+
+export type FishingVisualPhase =
+  | "idle"
+  | "casting"
+  | "waiting"
+  | "bite"
+  | "reeling"
+  | "caught";
+
+export interface FishingReelVisual {
+  tension: number;
+  progress: number;
+  targetCenter: number;
+  safeWidth: number;
+}
+
+export interface FishingVisualState {
+  phase: FishingVisualPhase;
+  castPower: number;
+  reel: FishingReelVisual | null;
+  fishFrame?: number;
+  weather?: string;
+}
+
+export interface SceneEffectPulse {
+  id: number;
+  kind: "catch" | "sale" | "upgrade" | "order";
+}
 
 type GameEventMap = {
-  "customers:sync": [customers: Customer[]];
-  "sale:pulse": [sale: SalePulse];
-  "game:paused": [paused: boolean];
-  "checkout:request": [];
+  "scene:sync": [state: FishingVisualState];
+  "scene:paused": [paused: boolean];
+  "scene:effect": [pulse: SceneEffectPulse];
+  "primary:request": [];
 };
 
 type GameEventName = keyof GameEventMap;
@@ -14,22 +41,22 @@ type GameEventListener<K extends GameEventName> = (
 ) => void;
 
 /**
- * A small typed boundary between React's simulation state and Phaser's
- * presentation scene. State-like events are retained so a scene that finishes
- * booting after React's first effect still receives the latest snapshot.
+ * Typed, retained bridge between React's simulation state and Phaser's visual
+ * scene. The latest state is kept so a scene that boots after React's first
+ * render still receives the correct fishing phase.
  */
-class GameEventBus {
+class FishingEventBus {
   private readonly emitter = new Phaser.Events.EventEmitter();
-  private latestCustomers: Customer[] | undefined;
-  private latestPaused: boolean | undefined;
+  private latestState: FishingVisualState | undefined;
+  private latestPaused = false;
 
   emit<K extends GameEventName>(
     eventName: K,
     ...args: GameEventMap[K]
   ): boolean {
-    if (eventName === "customers:sync") {
-      this.latestCustomers = args[0] as Customer[];
-    } else if (eventName === "game:paused") {
+    if (eventName === "scene:sync") {
+      this.latestState = args[0] as FishingVisualState;
+    } else if (eventName === "scene:paused") {
       this.latestPaused = args[0] as boolean;
     }
 
@@ -41,18 +68,16 @@ class GameEventBus {
     listener: GameEventListener<K>,
   ): () => void {
     this.emitter.on(eventName, listener);
-    return () => {
-      this.emitter.off(eventName, listener);
-    };
+    return () => this.emitter.off(eventName, listener);
   }
 
-  getCustomers(): Customer[] | undefined {
-    return this.latestCustomers;
+  getLatestState(): FishingVisualState | undefined {
+    return this.latestState;
   }
 
-  getPaused(): boolean | undefined {
+  getPaused(): boolean {
     return this.latestPaused;
   }
 }
 
-export const gameEvents = new GameEventBus();
+export const gameEvents = new FishingEventBus();

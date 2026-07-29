@@ -1,300 +1,598 @@
-import { describe, expect, it } from "vitest";
-import { PRODUCTS, UPGRADE_CONFIG } from "../data/products";
-import type { Customer, GameState } from "./types";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
+  BAITS,
+  FISH_SPECIES,
+  FISH_SPECIES_LIST,
+  GEAR,
   createInitialGameState,
   gameReducer,
-  getShelfCapacity,
+  generateCatch,
+  getCoolerCapacity,
+  getGearUpgradeCost,
+  getLevelProgress,
+  getLocationUnlockState,
+  getOrderProgress,
+  getReelTarget,
 } from "./engine";
+import {
+  STORAGE_KEY,
+  clearGameSave,
+  loadGameSave,
+  saveGame,
+} from "./storage";
+import type {
+  CaughtFish,
+  FishSpeciesId,
+  FishingOrder,
+  GameState,
+} from "./types";
 
-function queuedCustomer(overrides: Partial<Customer> = {}): Customer {
+function makeFish(
+  id: string,
+  speciesId: FishSpeciesId = "red-bream",
+  overrides: Partial<CaughtFish> = {},
+): CaughtFish {
+  const config = FISH_SPECIES[speciesId];
   return {
-    id: "customer-test",
-    species: "rabbit",
-    wants: ["apple", "bread"],
-    cart: ["apple", "bread"],
-    phase: "queue",
-    itemIndex: 2,
-    phaseTicks: 0,
-    patience: 10,
-    missedItems: 0,
-    joinedQueueAt: 3,
+    id,
+    speciesId,
+    weight: 2,
+    value: 60,
+    rarity: config.rarity,
+    atlasFrame: config.atlasFrame,
+    isTrophy: false,
+    caughtDay: 1,
+    locationId: "sunny-cove",
     ...overrides,
   };
 }
 
-function finishCurrentDay(state: GameState): GameState {
-  return gameReducer(
-    {
-      ...state,
-      speed: 1,
-      elapsedSeconds: state.dayDurationSeconds - 1,
-      nextCustomerAt: Number.POSITIVE_INFINITY,
-      customers: [],
-    },
-    { type: "TICK", random: [] },
-  );
+function reachBite(
+  state: GameState,
+  fish = generateCatch(state, [0, 0.5, 0.25]),
+): GameState {
+  const cast = gameReducer(state, { type: "CAST_LINE", power: 0.72 });
+  const waiting = gameReducer(cast, { type: "LINE_LANDED" });
+  return gameReducer(waiting, { type: "FISH_BITE", catch: fish });
 }
 
-describe("game engine", () => {
-  it("creates independent, serializable initial state for normal and QA play", () => {
-    const first = createInitialGameState();
-    const second = createInitialGameState(true);
+function completeReel(state: GameState): GameState {
+  const hooked = gameReducer(state, { type: "HOOK_FISH" });
+  const nextTickState: GameState = {
+    ...hooked,
+    reel: {
+      ...hooked.reel,
+      tick: hooked.reel.tick + 1,
+    },
+  };
+  const nextTarget = getReelTarget(nextTickState);
+  const prepared: GameState = {
+    ...hooked,
+    reel: {
+      ...hooked.reel,
+      held: false,
+      tension: nextTarget.center + 6,
+      progress: 99,
+    },
+  };
+  return gameReducer(prepared, { type: "TICK_REEL" });
+}
 
-    expect(first.dayDurationSeconds).toBe(90);
-    expect(second.dayDurationSeconds).toBe(30);
-    expect(first.lifetimeStats).toEqual({
-      revenue: 0,
-      costs: 0,
-      served: 0,
-      lost: 0,
-      itemsSold: 0,
-    });
+function orderOfKind(
+  state: GameState,
+  kind: FishingOrder["requirement"]["kind"],
+): FishingOrder {
+  const order = state.orders.find(
+    (candidate) => candidate.requirement.kind === kind,
+  );
+  if (!order) throw new Error(`Missing ${kind} order`);
+  return order;
+}
 
-    first.shelves.apple = 0;
-    expect(second.shelves.apple).toBe(4);
-    expect(() => JSON.stringify(second)).not.toThrow();
+beforeEach(() => {
+  window.localStorage.clear();
+});
+
+describe("fishing data and deterministic generation", () => {
+  it("defines exactly six 3x2 atlas fish and three bait choices", () => {
+    expect(FISH_SPECIES_LIST).toHaveLength(6);
+    expect(FISH_SPECIES_LIST.map((fish) => fish.atlasFrame)).toEqual([
+      0, 1, 2, 3, 4, 5,
+    ]);
+    expect(Object.keys(BAITS)).toHaveLength(3);
+    expect(FISH_SPECIES_LIST.map((fish) => fish.id)).toEqual([
+      "red-bream",
+      "mackerel",
+      "sea-bass",
+      "golden-fin",
+      "blue-spotted",
+      "moon-ray",
+    ]);
   });
 
-  it("charges confirmed orders, adds warehouse stock, and clears the draft", () => {
-    const initial = createInitialGameState();
-    const withApple = gameReducer(initial, {
-      type: "SET_ORDER_QUANTITY",
-      productId: "apple",
-      quantity: 2,
-    });
-    const withOrder = gameReducer(withApple, {
-      type: "SET_ORDER_QUANTITY",
-      productId: "milk",
-      quantity: 1,
-    });
-    const result = gameReducer(withOrder, { type: "CONFIRM_ORDER" });
-    const cost =
-      PRODUCTS.apple.unitCost * 2 + PRODUCTS.milk.unitCost;
+  it("generates a repeatable catch from supplied rolls and valid habitat data", () => {
+    const state = createInitialGameState();
+    const first = generateCatch(state, [0.72, 0.4, 0.123456]);
+    const second = generateCatch(state, [0.72, 0.4, 0.123456]);
 
-    expect(result.money).toBe(initial.money - cost);
-    expect(result.warehouse.apple).toBe(initial.warehouse.apple + 2);
-    expect(result.warehouse.milk).toBe(initial.warehouse.milk + 1);
-    expect(result.orderDraft.apple).toBe(0);
-    expect(result.orderDraft.milk).toBe(0);
-    expect(result.stats.costs).toBe(cost);
-    expect(result.lifetimeStats.costs).toBe(cost);
-    expect(initial.orderDraft.apple).toBe(0);
+    expect(first).toEqual(second);
+    expect(
+      FISH_SPECIES[first.speciesId].habitats.some(
+        (location) => location === state.locationId,
+      ),
+    ).toBe(true);
+    expect(first.atlasFrame).toBe(FISH_SPECIES[first.speciesId].atlasFrame);
+    expect(first.weight).toBeGreaterThan(0);
+    expect(first.value).toBeGreaterThan(0);
   });
 
-  it("rejects an unaffordable order without changing stock or money", () => {
-    let state = createInitialGameState();
-    state = {
-      ...state,
-      money: 1,
-      orderDraft: { ...state.orderDraft, apple: 2 },
+  it("moves the reeling safe target over time and widens it in QA mode", () => {
+    const fish = makeFish("moving-target", "blue-spotted");
+    const normal: GameState = {
+      ...createInitialGameState(),
+      currentCatch: fish,
     };
-    const result = gameReducer(state, { type: "CONFIRM_ORDER" });
+    const later: GameState = {
+      ...normal,
+      reel: { ...normal.reel, tick: 7 },
+    };
+    const qa: GameState = { ...normal, qaMode: true };
 
-    expect(result.money).toBe(1);
-    expect(result.warehouse).toEqual(state.warehouse);
-    expect(result.orderDraft.apple).toBe(2);
+    expect(getReelTarget(later).center).not.toBe(getReelTarget(normal).center);
+    expect(getReelTarget(qa).width).toBeGreaterThan(
+      getReelTarget(normal).width,
+    );
+  });
+});
+
+describe("core fishing loop", () => {
+  it("consumes one cast and bait once, then catches and stores a fish", () => {
+    const initial = {
+      ...createInitialGameState(true),
+      tutorialSeen: true,
+      selectedBaitId: "shrimp" as const,
+    };
+    const bite = reachBite(initial);
+
+    expect(bite.phase).toBe("bite");
+    expect(bite.castsRemaining).toBe(initial.castsRemaining - 1);
+    expect(bite.baitInventory.shrimp).toBe(
+      initial.baitInventory.shrimp - 1,
+    );
+    expect(gameReducer(bite, { type: "CAST_LINE", power: 1 })).toBe(bite);
+
+    const caught = completeReel(bite);
+    expect(caught.phase).toBe("caught");
+    expect(caught.stats).toMatchObject({ hooked: 1, caught: 1 });
+    expect(caught.xp).toBeGreaterThan(0);
+    expect(caught.discoveredSpecies).toContain(
+      caught.currentCatch?.speciesId,
+    );
+    expect(
+      caught.currentCatch
+        ? caught.bestWeights[caught.currentCatch.speciesId]
+        : undefined,
+    ).toBe(caught.currentCatch?.weight);
+
+    const stored = gameReducer(caught, { type: "STORE_CATCH" });
+    expect(stored.phase).toBe("idle");
+    expect(stored.cooler).toHaveLength(1);
+    expect(stored.stats.stored).toBe(1);
+    expect(caught.cooler).toHaveLength(0);
+  });
+
+  it("keeps a caught fish pending when the cooler is full", () => {
+    const fish = makeFish("pending");
+    const initial = createInitialGameState();
+    const fullCooler = Array.from(
+      { length: getCoolerCapacity(initial) },
+      (_, index) => makeFish(`stored-${index}`),
+    );
+    const state: GameState = {
+      ...initial,
+      phase: "caught",
+      currentCatch: fish,
+      cooler: fullCooler,
+    };
+    const result = gameReducer(state, { type: "STORE_CATCH" });
+
+    expect(result.phase).toBe("caught");
+    expect(result.currentCatch).toEqual(fish);
+    expect(result.cooler).toHaveLength(getCoolerCapacity(initial));
     expect(result.toast?.kind).toBe("warning");
   });
 
-  it("moves one item or as many items as fit from warehouse to a shelf", () => {
-    const initial = {
-      ...createInitialGameState(),
-      shelves: { ...createInitialGameState().shelves, apple: 7 },
-      warehouse: { ...createInitialGameState().warehouse, apple: 10 },
-    };
-    const one = gameReducer(initial, {
-      type: "RESTOCK_ONE",
-      productId: "apple",
-    });
-    const full = gameReducer(
-      {
-        ...one,
-        shelves: { ...one.shelves, apple: 6 },
-      },
-      { type: "RESTOCK_ALL", productId: "apple" },
-    );
-
-    expect(one.shelves.apple).toBe(8);
-    expect(one.warehouse.apple).toBe(9);
-    expect(full.shelves.apple).toBe(getShelfCapacity(full));
-    expect(full.warehouse.apple).toBe(7);
-  });
-
-  it("spawns customers and advances two logical seconds at double speed", () => {
-    const state: GameState = {
-      ...createInitialGameState(true),
-      tutorialSeen: true,
-      speed: 2,
-    };
-    const result = gameReducer(state, {
-      type: "TICK",
-      random: [0, 0, 0, 0],
-    });
-
-    expect(result.elapsedSeconds).toBe(2);
-    expect(result.customers).toHaveLength(1);
-    expect(result.customers[0]?.phase).toBe("shopping");
-  });
-
-  it("removes shelf stock as a customer shops item by item", () => {
-    const shopper = queuedCustomer({
-      phase: "shopping",
-      wants: ["apple"],
-      cart: [],
-      itemIndex: 0,
-      phaseTicks: 1,
-      joinedQueueAt: null,
-    });
+  it("can instantly sell the pending catch or sell every stored fish", () => {
+    const pending = makeFish("pending", "sea-bass", { value: 90 });
+    const stored = makeFish("stored", "mackerel", { value: 40 });
     const initial: GameState = {
       ...createInitialGameState(),
-      customers: [shopper],
-      nextCustomerAt: Number.POSITIVE_INFINITY,
-    };
-    const result = gameReducer(initial, { type: "TICK", random: [] });
-
-    expect(result.shelves.apple).toBe(initial.shelves.apple - 1);
-    expect(result.customers[0]).toMatchObject({
-      phase: "queue",
-      cart: ["apple"],
-      itemIndex: 1,
-    });
-    expect(initial.shelves.apple).toBe(4);
-  });
-
-  it("collects checkout revenue, updates statistics, and starts cooldown", () => {
-    const customer = queuedCustomer();
-    const initial: GameState = {
-      ...createInitialGameState(),
-      customers: [customer],
+      phase: "caught",
+      currentCatch: pending,
+      cooler: [stored],
       money: 100,
     };
-    const result = gameReducer(initial, { type: "CHECKOUT_NEXT" });
-    const sale = PRODUCTS.apple.sellPrice + PRODUCTS.bread.sellPrice;
+    const soldPending = gameReducer(initial, { type: "SELL_CATCH" });
 
-    expect(result.money).toBe(100 + sale);
-    expect(result.stats).toMatchObject({
-      revenue: sale,
-      served: 1,
-      itemsSold: 2,
-    });
-    expect(result.lifetimeStats).toMatchObject({
-      revenue: sale,
-      served: 1,
-      itemsSold: 2,
-    });
-    expect(result.customers[0]?.phase).toBe("leaving");
-    expect(result.checkoutCooldown).toBe(4);
-    expect(result.salePulse).toMatchObject({
-      customerId: customer.id,
-      amount: sale,
-    });
+    expect(soldPending.money).toBe(190);
+    expect(soldPending.stats).toMatchObject({ fishSold: 1, revenue: 90 });
+    expect(soldPending.phase).toBe("idle");
+    expect(soldPending.cooler).toEqual([stored]);
+
+    const soldAll = gameReducer(soldPending, { type: "SELL_ALL" });
+    expect(soldAll.money).toBe(230);
+    expect(soldAll.cooler).toHaveLength(0);
+    expect(soldAll.stats).toMatchObject({ fishSold: 2, revenue: 130 });
   });
 
-  it("ends each day, carries lifetime totals, and enters the terminal state after day three", () => {
-    let state: GameState = {
-      ...createInitialGameState(true),
-      stats: {
-        revenue: 100,
-        costs: 25,
-        served: 4,
-        lost: 1,
-        itemsSold: 7,
-      },
-      lifetimeStats: {
-        revenue: 100,
-        costs: 25,
-        served: 4,
-        lost: 1,
-        itemsSold: 7,
+  it("fails a reel after sustained unsafe tension and settles the attempt once", () => {
+    const initial = createInitialGameState();
+    const bite = reachBite(initial, makeFish("fighter", "moon-ray"));
+    const hooked = gameReducer(bite, { type: "HOOK_FISH" });
+    const unsafe: GameState = {
+      ...hooked,
+      reel: {
+        ...hooked.reel,
+        held: true,
+        tension: 98,
       },
     };
+    const escaped = gameReducer(unsafe, { type: "TICK_REEL" });
+    const repeated = gameReducer(escaped, { type: "TICK_REEL" });
 
-    state = finishCurrentDay(state);
-    expect(state.status).toBe("dayEnd");
-    expect(state.lastDayStats?.revenue).toBe(100);
-    expect(state.totalProfit).toBe(75);
-
-    state = gameReducer(state, { type: "START_NEXT_DAY" });
-    expect(state.day).toBe(2);
-    expect(state.stats).toEqual({
-      revenue: 0,
-      costs: 0,
-      served: 0,
-      lost: 0,
-      itemsSold: 0,
-    });
-    expect(state.lifetimeStats.revenue).toBe(100);
-
-    state = finishCurrentDay(state);
-    state = gameReducer(state, { type: "START_NEXT_DAY" });
-    expect(state.day).toBe(3);
-    state = finishCurrentDay(state);
-
-    expect(state.status).toBe("gameEnd");
-    expect(state.day).toBe(3);
-    expect(state.totalProfit).toBe(75);
-    expect(gameReducer(state, { type: "START_NEXT_DAY" })).toBe(state);
+    expect(escaped.phase).toBe("idle");
+    expect(escaped.stats.escaped).toBe(1);
+    expect(repeated).toBe(escaped);
   });
+});
 
-  it.each([
-    ["shelf", 120],
-    ["checkout", 150],
-    ["patience", 110],
-  ] as const)("buys the %s upgrade and applies its gameplay effect", (upgradeId, cost) => {
-    const waiting = queuedCustomer({ patience: 3 });
-    const initial: GameState = {
-      ...createInitialGameState(),
-      money: 1_000,
-      customers: [waiting],
-      checkoutCooldown: 4,
-    };
-    const result = gameReducer(initial, {
-      type: "BUY_UPGRADE",
-      upgradeId,
-    });
-
-    expect(result.upgrades[upgradeId]).toBe(1);
-    expect(result.money).toBe(1_000 - cost);
-    expect(cost).toBe(UPGRADE_CONFIG[upgradeId].costs[0]);
-
-    if (upgradeId === "shelf") {
-      expect(getShelfCapacity(result)).toBe(11);
-    } else if (upgradeId === "checkout") {
-      expect(result.checkoutCooldown).toBe(3);
-    } else {
-      expect(result.customers[0]?.patience).toBe(11);
+describe("orders and management progression", () => {
+  it("fulfills a species-count order atomically and consumes only matching fish", () => {
+    const initial = createInitialGameState();
+    const order = orderOfKind(initial, "speciesCount");
+    if (order.requirement.kind !== "speciesCount") {
+      throw new Error("Expected species order");
     }
+    const matching = [
+      makeFish("red-1", order.requirement.speciesId),
+      makeFish("red-2", order.requirement.speciesId),
+    ];
+    const untouched = makeFish("other", "mackerel");
+    const ready: GameState = {
+      ...initial,
+      cooler: [...matching, untouched],
+    };
+
+    expect(getOrderProgress(ready, order)).toMatchObject({
+      current: 2,
+      target: 2,
+      ratio: 1,
+    });
+    const fulfilled = gameReducer(ready, {
+      type: "FULFILL_ORDER",
+      orderId: order.id,
+    });
+
+    expect(fulfilled.cooler).toEqual([untouched]);
+    expect(fulfilled.money).toBe(initial.money + order.rewardCoins);
+    expect(fulfilled.reputation).toBe(
+      initial.reputation + order.rewardReputation,
+    );
+    expect(fulfilled.stats.revenue).toBe(order.rewardCoins);
+    expect(fulfilled.lifetimeStats.revenue).toBe(order.rewardCoins);
+    expect(
+      fulfilled.orders.find((candidate) => candidate.id === order.id)
+        ?.fulfilled,
+    ).toBe(true);
+
+    const repeated = gameReducer(fulfilled, {
+      type: "FULFILL_ORDER",
+      orderId: order.id,
+    });
+    expect(repeated.money).toBe(fulfilled.money);
+    expect(repeated.cooler).toEqual(fulfilled.cooler);
   });
 
-  it("turns an impatient queued customer away and counts the loss once", () => {
+  it("supports total-weight and rare-catch orders", () => {
+    const initial = createInitialGameState();
+    const weightOrder = orderOfKind(initial, "totalWeight");
+    const weightReady: GameState = {
+      ...initial,
+      cooler: [
+        makeFish("heavy", "sea-bass", { weight: 3 }),
+        makeFish("medium", "mackerel", { weight: 2 }),
+      ],
+    };
+    const weightResult = gameReducer(weightReady, {
+      type: "FULFILL_ORDER",
+      orderId: weightOrder.id,
+    });
+    expect(weightResult.cooler).toHaveLength(0);
+    expect(weightResult.stats.ordersFulfilled).toBe(1);
+
+    const rareOrder = orderOfKind(initial, "rareCatch");
+    const common = makeFish("common", "red-bream");
+    const uncommon = makeFish("uncommon", "sea-bass");
+    const rareReady: GameState = {
+      ...initial,
+      cooler: [common, uncommon],
+    };
+    const rareResult = gameReducer(rareReady, {
+      type: "FULFILL_ORDER",
+      orderId: rareOrder.id,
+    });
+    expect(rareResult.cooler).toEqual([common]);
+    expect(rareResult.stats.ordersFulfilled).toBe(1);
+  });
+
+  it("charges gear upgrades, caps them at level three, and applies benefits", () => {
     const initial: GameState = {
       ...createInitialGameState(),
-      customers: [queuedCustomer({ patience: 1 })],
-      nextCustomerAt: Number.POSITIVE_INFINITY,
+      money: 4_000,
+      currentCatch: makeFish("target"),
     };
-    const upset = gameReducer(initial, { type: "TICK", random: [] });
-    const departed = gameReducer(upset, { type: "TICK", random: [] });
+    const rodCost = getGearUpgradeCost(initial, "rod");
+    const firstRod = gameReducer(
+      { ...initial, currentCatch: null },
+      { type: "BUY_GEAR", gearId: "rod" },
+    );
+    const maxRod = gameReducer(firstRod, {
+      type: "BUY_GEAR",
+      gearId: "rod",
+    });
+    const alreadyMax = gameReducer(maxRod, {
+      type: "BUY_GEAR",
+      gearId: "rod",
+    });
 
-    expect(upset.customers[0]?.phase).toBe("upset");
-    expect(upset.stats.lost).toBe(1);
-    expect(upset.lifetimeStats.lost).toBe(1);
-    expect(departed.stats.lost).toBe(1);
+    expect(rodCost).toBe(GEAR.rod.upgradeCosts[0]);
+    expect(firstRod.money).toBe(initial.money - (rodCost ?? 0));
+    expect(maxRod.gear.rod).toBe(3);
+    expect(getGearUpgradeCost(maxRod, "rod")).toBeNull();
+    expect(alreadyMax.money).toBe(maxRod.money);
+
+    const coolerTwo: GameState = {
+      ...initial,
+      gear: { ...initial.gear, cooler: 2 },
+    };
+    const coolerThree: GameState = {
+      ...initial,
+      gear: { ...initial.gear, cooler: 3 },
+    };
+    expect([
+      getCoolerCapacity(initial),
+      getCoolerCapacity(coolerTwo),
+      getCoolerCapacity(coolerThree),
+    ]).toEqual([4, 8, 12]);
   });
 
-  it("resets to a fresh state while honoring the requested QA mode", () => {
-    const dirty: GameState = {
+  it("unlocks the three locations through boat upgrades", () => {
+    let state: GameState = {
       ...createInitialGameState(),
-      day: 3,
-      money: 9_999,
+      money: 4_000,
+    };
+    expect(getLocationUnlockState(state, "sunny-cove").unlocked).toBe(true);
+    expect(getLocationUnlockState(state, "coral-reef").unlocked).toBe(false);
+    expect(getLocationUnlockState(state, "moonlit-deep").unlocked).toBe(
+      false,
+    );
+
+    const blocked = gameReducer(state, {
+      type: "SELECT_LOCATION",
+      locationId: "coral-reef",
+    });
+    expect(blocked.locationId).toBe("sunny-cove");
+    expect(blocked.toast?.kind).toBe("warning");
+
+    state = gameReducer(state, { type: "BUY_GEAR", gearId: "boat" });
+    state = gameReducer(state, {
+      type: "SELECT_LOCATION",
+      locationId: "coral-reef",
+    });
+    expect(state.locationId).toBe("coral-reef");
+
+    state = gameReducer(state, { type: "BUY_GEAR", gearId: "boat" });
+    state = gameReducer(state, {
+      type: "SELECT_LOCATION",
+      locationId: "moonlit-deep",
+    });
+    expect(state.locationId).toBe("moonlit-deep");
+  });
+
+  it("buys bait without allowing negative money", () => {
+    const initial: GameState = { ...createInitialGameState(), money: 100 };
+    const bought = gameReducer(initial, {
+      type: "BUY_BAIT",
+      baitId: "shrimp",
+      quantity: 2,
+    });
+    expect(bought.money).toBe(100 - BAITS.shrimp.price * 2);
+    expect(bought.baitInventory.shrimp).toBe(
+      initial.baitInventory.shrimp + 2,
+    );
+
+    const rejected = gameReducer(
+      { ...initial, money: 1 },
+      { type: "BUY_BAIT", baitId: "glow-worm", quantity: 2 },
+    );
+    expect(rejected.money).toBe(1);
+    expect(rejected.baitInventory).toEqual(initial.baitInventory);
+  });
+});
+
+describe("day flow, settings, and reset", () => {
+  it("keeps the final catch available for same-day orders before closing", () => {
+    const base = createInitialGameState(true);
+    const speciesOrder = orderOfKind(base, "speciesCount");
+    if (speciesOrder.requirement.kind !== "speciesCount") {
+      throw new Error("Expected species order");
+    }
+    const initial: GameState = {
+      ...base,
+      castsRemaining: 1,
+      cooler: [
+        makeFish("first-order-fish", speciesOrder.requirement.speciesId),
+      ],
+    };
+    const caught = completeReel(
+      reachBite(
+        initial,
+        makeFish("final-order-fish", speciesOrder.requirement.speciesId),
+      ),
+    );
+
+    expect(caught.castsRemaining).toBe(0);
+    expect(caught.status).toBe("playing");
+    expect(caught.phase).toBe("caught");
+
+    const stored = gameReducer(caught, { type: "STORE_CATCH" });
+    expect(stored.status).toBe("playing");
+    expect(stored.phase).toBe("idle");
+    expect(getOrderProgress(stored, speciesOrder).ratio).toBe(1);
+
+    const fulfilled = gameReducer(stored, {
+      type: "FULFILL_ORDER",
+      orderId: speciesOrder.id,
+    });
+    expect(fulfilled.orders.find((order) => order.id === speciesOrder.id)?.fulfilled).toBe(
+      true,
+    );
+
+    const ended = gameReducer(fulfilled, {
+      type: "CAST_LINE",
+      power: 0,
+    });
+    expect(ended.status).toBe("dayEnd");
+    expect(ended.lastDaySummary).toMatchObject({
+      day: 1,
+      coolerCount: 0,
+    });
+    expect(ended.lifetimeStats.daysCompleted).toBe(1);
+  });
+
+  it("lets the player close after a final failed cast, then refreshes the next day", () => {
+    const initial: GameState = {
+      ...createInitialGameState(true),
+      castsRemaining: 1,
+      cooler: [makeFish("kept")],
+      gear: {
+        ...createInitialGameState(true).gear,
+        boat: 2,
+      },
+    };
+    const waiting = gameReducer(
+      gameReducer(initial, { type: "CAST_LINE", power: 0.5 }),
+      { type: "LINE_LANDED" },
+    );
+    const settled = gameReducer(waiting, { type: "MISS_BITE" });
+
+    expect(settled.status).toBe("playing");
+    expect(settled.phase).toBe("idle");
+    expect(settled.castsRemaining).toBe(0);
+    expect(settled.stats.missed).toBe(1);
+
+    const ended = gameReducer(settled, {
+      type: "CAST_LINE",
+      power: 0,
+    });
+    expect(ended.status).toBe("dayEnd");
+    expect(ended.lastDaySummary?.stats.missed).toBe(1);
+
+    const next = gameReducer(ended, { type: "START_NEXT_DAY" });
+    expect(next.status).toBe("playing");
+    expect(next.day).toBe(2);
+    expect(next.weatherId).toBe("breezy");
+    expect(next.castsRemaining).toBe(next.dailyCastLimit);
+    expect(next.stats.casts).toBe(0);
+    expect(next.stats.missed).toBe(0);
+    expect(next.orders).toHaveLength(3);
+    expect(next.orders.every((order) => !order.fulfilled)).toBe(true);
+    expect(next.cooler).toEqual(ended.cooler);
+    expect(next.gear.boat).toBe(2);
+    expect(next.baitInventory.bread).toBe(
+      ended.baitInventory.bread + 2,
+    );
+  });
+
+  it("pauses gameplay actions while keeping sound and toast controls available", () => {
+    const initial = gameReducer(createInitialGameState(), {
+      type: "TOGGLE_PAUSE",
+    });
+    expect(initial.status).toBe("paused");
+    expect(gameReducer(initial, { type: "CAST_LINE", power: 1 })).toBe(initial);
+
+    const muted = gameReducer(initial, { type: "TOGGLE_SOUND" });
+    expect(muted.soundEnabled).toBe(false);
+    const resumed = gameReducer(muted, { type: "TOGGLE_PAUSE" });
+    expect(resumed.status).toBe("playing");
+  });
+
+  it("derives level progress and resets to a fresh independent game", () => {
+    const progressed: GameState = {
+      ...createInitialGameState(),
+      xp: 70,
+      level: 2,
+      money: 999,
       tutorialSeen: true,
     };
-    const reset = gameReducer(dirty, {
+    expect(getLevelProgress(progressed)).toMatchObject({
+      level: 2,
+      currentXp: 20,
+      requiredXp: 80,
+      ratio: 0.25,
+      isMaxLevel: false,
+    });
+
+    const reset = gameReducer(progressed, {
       type: "RESET_GAME",
       qaMode: true,
     });
+    const another = createInitialGameState(true);
+    expect(reset).toEqual(another);
+    reset.baitInventory.bread = 0;
+    expect(another.baitInventory.bread).toBe(20);
+    expect(() => JSON.stringify(reset)).not.toThrow();
+  });
+});
 
-    expect(reset).toEqual(createInitialGameState(true));
-    expect(reset.tutorialSeen).toBe(false);
+describe("local save storage", () => {
+  it("round-trips a version-two game without transient toast or held input", () => {
+    const state: GameState = {
+      ...createInitialGameState(),
+      tutorialSeen: true,
+      reel: {
+        ...createInitialGameState().reel,
+        held: true,
+      },
+      toast: {
+        id: 7,
+        kind: "success",
+        message: "transient",
+      },
+    };
+
+    saveGame(state);
+    const loaded = loadGameSave(false);
+    expect(loaded).not.toBeNull();
+    expect(loaded?.tutorialSeen).toBe(true);
+    expect(loaded?.reel.held).toBe(false);
+    expect(loaded?.toast).toBeNull();
+  });
+
+  it("rejects old or malformed saves, skips QA persistence, and clears saves", () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ version: 1, money: 999_999 }),
+    );
+    expect(loadGameSave(false)).toBeNull();
+
+    window.localStorage.clear();
+    saveGame(createInitialGameState(true));
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+
+    saveGame(createInitialGameState());
+    expect(window.localStorage.getItem(STORAGE_KEY)).not.toBeNull();
+    clearGameSave();
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 });

@@ -1,49 +1,61 @@
 import { useEffect, useRef } from "react";
 import Phaser from "phaser";
-import { gameEvents } from "../game/events";
 import {
+  gameEvents,
+  type FishingReelVisual,
+  type FishingVisualPhase,
+  type SceneEffectPulse,
+} from "../game/events";
+import {
+  FishingScene,
   GAME_HEIGHT,
   GAME_WIDTH,
-  MarketScene,
-} from "../game/MarketScene";
-import type { Customer, SalePulse } from "../game/types";
+} from "../game/FishingScene";
 
 export interface GameCanvasProps {
-  customers: Customer[];
-  salePulse: SalePulse | null;
+  phase: FishingVisualPhase;
+  castPower: number;
+  reel: FishingReelVisual | null;
+  fishFrame?: number;
+  weather?: string;
   paused: boolean;
-  onCheckout: () => void;
+  effectPulse?: SceneEffectPulse | null;
+  onPrimaryAction: () => void;
 }
 
 export function GameCanvas({
-  customers,
-  salePulse,
+  phase,
+  castPower,
+  reel,
+  fishFrame,
+  weather,
   paused,
-  onCheckout,
+  effectPulse,
+  onPrimaryAction,
 }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
-  const onCheckoutRef = useRef(onCheckout);
-  const initialStateRef = useRef({ customers, paused });
-  const lastSaleIdRef = useRef<number | null>(null);
+  const onPrimaryActionRef = useRef(onPrimaryAction);
+  const lastEffectIdRef = useRef<number | null>(null);
+  const initialVisualRef = useRef({
+    phase,
+    castPower,
+    reel,
+    fishFrame,
+    weather,
+  });
+  const initialPausedRef = useRef(paused);
 
-  onCheckoutRef.current = onCheckout;
+  onPrimaryActionRef.current = onPrimaryAction;
 
   useEffect(() => {
     const parent = containerRef.current;
-    if (!parent || gameRef.current) {
-      return;
-    }
+    if (!parent || gameRef.current) return;
 
-    gameEvents.emit(
-      "customers:sync",
-      initialStateRef.current.customers,
-    );
-    gameEvents.emit("game:paused", initialStateRef.current.paused);
-
-    const unsubscribeCheckout = gameEvents.on(
-      "checkout:request",
-      () => onCheckoutRef.current(),
+    gameEvents.emit("scene:sync", initialVisualRef.current);
+    gameEvents.emit("scene:paused", initialPausedRef.current);
+    const unsubscribePrimary = gameEvents.on("primary:request", () =>
+      onPrimaryActionRef.current(),
     );
 
     const game = new Phaser.Game({
@@ -51,15 +63,16 @@ export function GameCanvas({
       parent,
       width: GAME_WIDTH,
       height: GAME_HEIGHT,
-      backgroundColor: "#f7dfad",
-      pixelArt: true,
-      antialias: false,
-      roundPixels: true,
+      backgroundColor: "#1e9dcc",
+      transparent: false,
+      pixelArt: false,
+      antialias: true,
+      roundPixels: false,
       render: {
-        antialias: false,
-        antialiasGL: false,
-        pixelArt: true,
-        roundPixels: true,
+        antialias: true,
+        antialiasGL: true,
+        pixelArt: false,
+        roundPixels: false,
       },
       scale: {
         mode: Phaser.Scale.FIT,
@@ -67,53 +80,55 @@ export function GameCanvas({
         width: GAME_WIDTH,
         height: GAME_HEIGHT,
       },
-      scene: [MarketScene],
+      scene: [FishingScene],
     });
     gameRef.current = game;
 
     return () => {
-      unsubscribeCheckout();
-      if (gameRef.current === game) {
-        gameRef.current = null;
-      }
+      unsubscribePrimary();
+      if (gameRef.current === game) gameRef.current = null;
       game.destroy(true);
       parent.replaceChildren();
     };
   }, []);
 
   useEffect(() => {
-    gameEvents.emit("customers:sync", customers);
-  }, [customers]);
+    gameEvents.emit("scene:sync", {
+      phase,
+      castPower,
+      reel,
+      fishFrame,
+      weather,
+    });
+  }, [castPower, fishFrame, phase, reel, weather]);
 
   useEffect(() => {
-    gameEvents.emit("game:paused", paused);
+    gameEvents.emit("scene:paused", paused);
   }, [paused]);
 
   useEffect(() => {
     if (
-      salePulse === null ||
-      salePulse.id === lastSaleIdRef.current
+      !effectPulse ||
+      effectPulse.id === lastEffectIdRef.current
     ) {
       return;
     }
-
-    lastSaleIdRef.current = salePulse.id;
-    gameEvents.emit("sale:pulse", salePulse);
-  }, [salePulse]);
+    lastEffectIdRef.current = effectPulse.id;
+    gameEvents.emit("scene:effect", effectPulse);
+  }, [effectPulse]);
 
   return (
     <div
       ref={containerRef}
       className="game-canvas"
       role="application"
-      aria-label="松果小超市经营场景"
+      aria-label="海风渔港钓鱼水域。可点击水面执行当前钓鱼动作。"
       style={{
         width: "100%",
         aspectRatio: `${GAME_WIDTH} / ${GAME_HEIGHT}`,
         minWidth: 0,
         minHeight: 0,
         overflow: "hidden",
-        imageRendering: "pixelated",
       }}
     />
   );
