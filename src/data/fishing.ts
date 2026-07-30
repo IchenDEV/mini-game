@@ -131,7 +131,7 @@ export const GEAR = {
     name: "卷线器",
     description: "扩大张力安全区并降低失控速度。",
     upgradeCosts: [140, 390],
-    benefitLabels: ["标准张力区", "安全区 +4", "安全区 +8"],
+    benefitLabels: ["宽松张力区", "安全区 +10%", "安全区 +20%"],
   },
   cooler: {
     id: "cooler",

@@ -137,8 +137,16 @@ describe("fishing data and deterministic generation", () => {
       reel: { ...normal.reel, tick: 7 },
     };
     const qa: GameState = { ...normal, qaMode: true };
+    const upgraded: GameState = {
+      ...normal,
+      gear: { ...normal.gear, reel: 3 },
+    };
 
     expect(getReelTarget(later).center).not.toBe(getReelTarget(normal).center);
+    expect(getReelTarget(normal).width).toBeGreaterThanOrEqual(36);
+    expect(getReelTarget(upgraded).width).toBeGreaterThan(
+      getReelTarget(normal).width,
+    );
     expect(getReelTarget(qa).width).toBeGreaterThan(
       getReelTarget(normal).width,
     );

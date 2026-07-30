@@ -468,16 +468,16 @@ function reelTargetFor(
     ? FISH_SPECIES[state.currentCatch.speciesId]
     : FISH_SPECIES["red-bream"];
   const difficulty = fish.reelDifficulty;
-  const amplitude = 10 + difficulty * 2.8;
+  const amplitude = 7 + difficulty * 1.7;
   const center = clamp(
     50 +
       Math.sin(state.reel.tick * 0.52 + fish.atlasFrame * 0.73) * amplitude +
-      Math.sin(state.reel.tick * 0.19) * 4,
-    22,
-    78,
+      Math.sin(state.reel.tick * 0.19) * 2.5,
+    25,
+    75,
   );
   const halfWidth =
-    12 + (state.gear.reel - 1) * 4 + (state.qaMode ? 12 : 0);
+    18 + (state.gear.reel - 1) * 5 + (state.qaMode ? 12 : 0);
   const min = clamp(center - halfWidth, 0, 100);
   const max = clamp(center + halfWidth, 0, 100);
 
@@ -655,8 +655,8 @@ function handleReelTick(state: GameState): GameState {
 
   const reelLevel = state.gear.reel;
   const nextTick = state.reel.tick + 1;
-  const heldDelta = Math.max(5.5, 8 - (reelLevel - 1) * 0.8);
-  const releasedDelta = Math.min(-4.5, -6 + (reelLevel - 1) * 0.5);
+  const heldDelta = Math.max(3.8, 5 - (reelLevel - 1) * 0.6);
+  const releasedDelta = Math.min(-3.2, -4 + (reelLevel - 1) * 0.4);
   const tension = clamp(
     state.reel.tension + (state.reel.held ? heldDelta : releasedDelta),
     0,
@@ -668,15 +668,15 @@ function handleReelTick(state: GameState): GameState {
   });
   const safe = tension >= target.min && tension <= target.max;
   const progressGain = state.qaMode
-    ? 30
-    : 8 + state.gear.rod * 2;
+    ? 35
+    : 13 + state.gear.rod * 3;
   const progress = clamp(
-    state.reel.progress + (safe ? progressGain : state.qaMode ? -1 : -4),
+    state.reel.progress + (safe ? progressGain : state.qaMode ? -1 : -2),
     0,
     100,
   );
   const dangerTicks = safe
-    ? Math.max(0, state.reel.dangerTicks - 1)
+    ? Math.max(0, state.reel.dangerTicks - 2)
     : state.reel.dangerTicks + 1;
   const reel: ReelState = {
     ...state.reel,
@@ -685,7 +685,7 @@ function handleReelTick(state: GameState): GameState {
     tick: nextTick,
     dangerTicks,
   };
-  const dangerLimit = state.qaMode ? 8 : 4 + (reelLevel - 1);
+  const dangerLimit = state.qaMode ? 12 : 8 + reelLevel * 2;
 
   if (tension <= 1 || tension >= 99 || dangerTicks >= dangerLimit) {
     const failed = withToast(

@@ -246,7 +246,7 @@ export function App() {
     if (state.phase === "bite") {
       const timer = window.setTimeout(
         () => dispatch({ type: "MISS_BITE" }),
-        state.qaMode ? 2800 : 1650,
+        state.qaMode ? 3600 : 3000,
       );
       return () => window.clearTimeout(timer);
     }
@@ -254,7 +254,7 @@ export function App() {
     if (state.phase === "reeling") {
       const timer = window.setInterval(
         () => dispatch({ type: "TICK_REEL" }),
-        state.qaMode ? 130 : 105,
+        state.qaMode ? 130 : 125,
       );
       return () => window.clearInterval(timer);
     }
