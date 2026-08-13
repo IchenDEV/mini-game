@@ -2,7 +2,7 @@
 
 一款围绕引力与切线飞行设计的单键动作游戏。按住鼠标、触屏或空格，星针会牵引最近的锚星；松开后沿切线发射。依次抵达目标星、擦过蚀洞并收集火花，在夜色耗尽前缝出尽可能长的星轨。
 
-在线游玩：https://ichendev.github.io/mini-game/
+在线游玩：https://blogs.idevlab.dev/mini-game/
 
 ## 运行
 
