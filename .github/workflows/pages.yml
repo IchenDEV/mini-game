@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -37,7 +39,7 @@ jobs:
         run: pnpm test
 
       - name: Build site
-        run: pnpm build
+        run: pnpm build:pages
 
       - name: Configure Pages
         uses: actions/configure-pages@v5

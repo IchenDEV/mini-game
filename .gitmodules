@@ -1,0 +1,3 @@
+[submodule "games/pokemon-clone/vendor/pokeyellow"]
+	path = games/pokemon-clone/vendor/pokeyellow
+	url = https://github.com/pret/pokeyellow
