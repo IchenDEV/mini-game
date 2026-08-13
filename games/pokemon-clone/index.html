@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Pokémon Yellow — Web Clone</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="shell">
+      <div id="bezel">
+        <div id="screen-frame">
+          <div id="power-led"></div>
+          <canvas id="screen" width="160" height="144"></canvas>
+        </div>
+        <div id="brand">POKéMON YELLOW <span>web clone</span></div>
+        <div id="controls">
+          <div id="dpad">
+            <button data-k="UP" id="d-up"></button>
+            <button data-k="LEFT" id="d-left"></button>
+            <div id="d-center"></div>
+            <button data-k="RIGHT" id="d-right"></button>
+            <button data-k="DOWN" id="d-down"></button>
+          </div>
+          <div id="ab">
+            <button data-k="B" class="round">B</button>
+            <button data-k="A" class="round">A</button>
+          </div>
+        </div>
+        <div id="startselect">
+          <button data-k="SELECT" class="pill">SELECT</button>
+          <button data-k="START" class="pill">START</button>
+        </div>
+        <div id="help">Z/X = A/B &nbsp;·&nbsp; Enter = START &nbsp;·&nbsp; Shift = SELECT &nbsp;·&nbsp; ↑↓←→ 移动 &nbsp;·&nbsp; 长按 Space 加速</div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

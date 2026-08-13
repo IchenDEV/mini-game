@@ -1,0 +1,6 @@
+node_modules/
+dist/
+vendor/
+public/assets/
+src/data/gen/
+.DS_Store
