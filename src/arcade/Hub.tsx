@@ -39,6 +39,15 @@ export function Hub({ games, onPlay, onLegacy }: HubProps) {
         </nav>
       </header>
 
+      <section className="hub-section" aria-labelledby="six-hearts-title">
+        <a className="hub-card hub-adventure" href={`${import.meta.env.BASE_URL}games/brasshaven/`}>
+          <span className="hub-card-no">探索冒险 · 六座机械之城</span>
+          <strong className="hub-card-name" id="six-hearts-title">六城之心</strong>
+          <span className="hub-card-tagline">穿过晨光、蒸汽与云海，找回动力组件，乘飞艇唤醒六座城市。</span>
+          <span className="hub-card-meta"><span>等距 3D · 原创音乐 · 自动存档</span><span>启程 →</span></span>
+        </a>
+      </section>
+
       {[...byCategory.entries()].map(([category, list]) => (
         <section key={category} className="hub-section" id={catAnchor(category)}>
           <h2 className="hub-section-title">

@@ -7,6 +7,7 @@
 | 游戏 | 简介 | 在线游玩 | 源码目录 |
 | --- | --- | --- | --- |
 | 星港街机 | 50 款 Three.js 3D 街机小游戏合集（含创始作星轨织者） | [开始游戏](https://blogs.idevlab.dev/mini-game/) | 仓库根目录 |
+| 六城之心 | 明亮白昼中的体素蒸汽朋克探索，修复六城核心并乘飞艇启航 | [开始游戏](https://blogs.idevlab.dev/mini-game/games/brasshaven/) | [`games/brasshaven`](games/brasshaven) |
 | 霓虹风暴 | 单文件、零依赖的竞技场生存射击 | [开始游戏](https://blogs.idevlab.dev/mini-game/games/best-game/) | [`games/best-game`](games/best-game) |
 | Pokémon Web Clone | Game Boy 风格的怪物收集 JRPG 原型 | [开始游戏](https://blogs.idevlab.dev/mini-game/games/pokemon-clone/) | [`games/pokemon-clone`](games/pokemon-clone) |
 | 孤圈行动 | Three.js 浏览器大逃杀原型 | [开始游戏](https://blogs.idevlab.dev/mini-game/games/pubg-clone/) | [`games/pubg-clone`](games/pubg-clone) |
@@ -19,6 +20,7 @@
 ├── src/                     # 星港街机 React / Three.js 源码（含创始作星轨织者）
 ├── public/                  # 星港街机资源
 ├── games/
+│   ├── brasshaven/          # 六城之心
 │   ├── best-game/           # 霓虹风暴
 │   ├── pokemon-clone/       # 怪物收集 JRPG
 │   ├── pubg-clone/          # 孤圈行动

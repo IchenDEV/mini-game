@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig(({ command }) => ({
   base: command === "build" ? "/mini-game/" : "/",
@@ -16,6 +16,7 @@ export default defineConfig(({ command }) => ({
     port: 4173,
   },
   test: {
+    exclude: [...configDefaults.exclude, "games/brasshaven/tests/**"],
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
   },

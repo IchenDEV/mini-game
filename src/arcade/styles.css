@@ -127,6 +127,11 @@
   opacity: 0.85;
 }
 
+.hub-adventure {
+  --accent: #d4ae6b;
+  text-decoration: none;
+}
+
 .hub-card:hover {
   transform: translateY(-3px);
   border-color: color-mix(in srgb, var(--accent, #38bdf8) 65%, transparent);
