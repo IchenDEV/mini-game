@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b181b" />
+    <meta
+      name="description"
+      content="黄铜港，一座雨后仍在呼吸的蒸汽之城。可交互的 Three.js 等距场景。"
+    />
+    <title>六城之心 — The Six Hearts</title>
+    <script id="local-file-entry">
+      if (location.protocol === "file:") {
+        location.replace(new URL("Brasshaven.html", location.href));
+      }
+    </script>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230c2023'/%3E%3Ccircle cx='32' cy='32' r='19' fill='none' stroke='%23c7a572' stroke-width='6'/%3E%3Cpath d='M32 16v16l10 7' fill='none' stroke='%23c7a572' stroke-width='4'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <main id="experience" aria-label="黄铜港可交互三维场景">
+      <canvas
+        id="scene"
+        tabindex="0"
+        aria-label="点击地面移动，拖拽旋转，滚轮缩放。也可使用方向键移动，A 和 D 旋转，加减键缩放。"
+      ></canvas>
+      <div class="vignette" aria-hidden="true"></div>
+      <header>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">✧</span
+          ><span
+            >OTHERWHERE<span class="brand-sub">INTERACTIVE WORLDS</span></span
+          >
+        </div>
+        <button
+          class="journey-button"
+          id="open-map"
+          aria-label="打开六城航线图"
+          disabled
+        >
+          <span class="status-dot"></span> 航线图
+          <span id="journey-count">0 / 6</span>
+        </button>
+      </header>
+      <section class="title-block" aria-label="场景介绍">
+        <div class="eyebrow"><span></span> THE CLOCKWORK DISTRICT</div>
+        <h1>BRASSHAVEN<span>黄 铜 港</span></h1>
+        <p>雨已停歇，城市仍在呼吸。</p>
+        <div class="coordinates">N 51° 30′ &nbsp; E 00° 07′ <i></i> 1893</div>
+      </section>
+      <aside class="scene-label">
+        <span class="label-line"></span
+        ><span>第七码头<small>THE SEVENTH WHARF</small></span>
+      </aside>
+      <div id="loading" role="status">
+        <span class="loading-gear">⚙</span><span>正在唤醒黄铜港…</span>
+      </div>
+      <div id="error" role="alert" hidden></div>
+      <div id="world-labels" aria-label="可交互的机械与动力组件"></div>
+      <section id="mission" class="mission-panel" aria-label="当前任务" hidden>
+        <div class="mission-kicker">
+          <span id="chapter-number">CHAPTER 01 / 06</span
+          ><span id="save-status">自动保存</span>
+        </div>
+        <h2 id="mission-title">找回动力组件</h2>
+        <div
+          id="gear-progress"
+          class="gear-progress"
+          aria-label="动力组件收集进度"
+        ></div>
+        <p id="mission-copy"></p>
+        <div id="clue" class="clue" hidden>
+          <span>机械铭牌</span>
+          <p id="clue-copy"></p>
+        </div>
+        <div
+          id="sequence-progress"
+          class="sequence-progress"
+          aria-label="控制器启动进度"
+        ></div>
+        <button id="next-region" class="primary-action" hidden>
+          前往下一站 →
+        </button>
+      </section>
+      <div id="toast" class="game-toast" role="status" aria-live="polite"></div>
+      <div id="stage-transition" aria-live="polite" hidden>
+        <span>➶</span><small>正在穿过云海</small>
+        <h2 id="destination-name"></h2>
+      </div>
+      <dialog id="intro" class="game-dialog intro-dialog">
+        <form method="dialog" class="dialog-card">
+          <div class="intro-emblem" aria-hidden="true">✧<i></i><i></i></div>
+          <p class="dialog-kicker">AN OTHERWHERE ADVENTURE</p>
+          <h2>六城之心</h2>
+          <p class="intro-english">THE SIX HEARTS</p>
+          <p class="intro-story">
+            找回散落的动力组件，唤醒沉寂的机械之城。<br />乘着飞艇，赴一场穿越六座城的白昼旅程。
+          </p>
+          <div class="intro-steps">
+            <span><b>✦</b>寻找组件</span><span><b>⚙</b>修复核心</span
+            ><span><b>➶</b>解锁航路</span>
+          </div>
+          <button id="begin-game" type="button" class="primary-action">
+            开始旅程 <span>→</span>
+          </button>
+          <button id="new-game" type="button" class="text-action" hidden>
+            重新启程
+          </button>
+          <p class="audio-note">♫ 启程后播放原创背景音乐，可随时关闭</p>
+        </form>
+      </dialog>
+      <dialog id="route-map" class="game-dialog map-dialog">
+        <div class="dialog-card">
+          <button class="close-dialog" id="close-map" aria-label="关闭航线图">
+            ×
+          </button>
+          <p class="dialog-kicker">THE CLOCKWORK AIRWAY</p>
+          <h2>六城航线图</h2>
+          <p class="map-caption">重启一座核心，点亮下一段旅途。</p>
+          <div id="route-cards" class="route-cards"></div>
+          <p class="map-footnote">
+            已到达的区域可以自由往返 · 进度自动保存在本机
+          </p>
+        </div>
+      </dialog>
+      <dialog id="ending" class="game-dialog ending-dialog">
+        <div class="dialog-card">
+          <div class="ending-stars" aria-hidden="true">✧ ✧ ✧ ✧ ✧ ✧</div>
+          <p class="dialog-kicker">THE CITIES ARE ALIVE AGAIN</p>
+          <h2>每一座城，<br />都有了心跳。</h2>
+          <p class="intro-story">
+            黄铜的钟声、花园的风、水轮的回响……<br />六道光连成一条航线，城市再次开始呼吸。
+          </p>
+          <div class="ending-stats">
+            <span><b>6</b>城市核心</span><span><b>18</b>动力组件</span
+            ><span><b id="ending-mistakes">0</b>调压尝试失误</span>
+          </div>
+          <button id="explore-world" class="primary-action">
+            继续自由游览 →
+          </button>
+        </div>
+      </dialog>
+      <dialog id="restart-dialog" class="game-dialog">
+        <div class="dialog-card">
+          <p class="dialog-kicker">A NEW JOURNEY</p>
+          <h2>重新启程？</h2>
+          <p>本次旅程的收集与修复进度将重新开始。</p>
+          <button id="confirm-restart" class="primary-action">
+            开始新的旅程</button
+          ><button id="cancel-restart" class="text-action">保留当前进度</button>
+        </div>
+      </dialog>
+      <footer>
+        <div class="controls" aria-label="操作指南">
+          <span
+            ><svg viewBox="0 0 20 24" aria-hidden="true">
+              <rect x="3" y="2" width="14" height="20" rx="7" />
+              <path d="M10 3v7M3 10h14" /></svg
+            ><span>点击移动<small>MOVE</small></span></span
+          >
+          <span
+            ><svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M5 8a8 8 0 0 1 14 0M19 16a8 8 0 0 1-14 0M5 3v5h5M19 21v-5h-5"
+              /></svg
+            ><span>拖拽环视<small>ORBIT</small></span></span
+          >
+          <span
+            ><svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v18M8 7l4-4 4 4M8 17l4 4 4-4" /></svg
+            ><span>滚轮缩放<small>ZOOM</small></span></span
+          >
+        </div>
+        <div class="tools">
+          <button
+            id="sound"
+            aria-label="关闭背景音乐"
+            aria-pressed="false"
+            title="背景音乐 · M"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 10h4l5-4v12l-5-4H4zM17 8a6 6 0 0 1 0 8M20 5a10 10 0 0 1 0 14"
+              />
+            </svg>
+          </button>
+          <label class="volume-control" title="音乐音量"
+            ><span class="sr-only">背景音乐音量</span
+            ><input
+              id="music-volume"
+              aria-label="背景音乐音量"
+              type="range"
+              min="0"
+              max="100"
+              value="40"
+          /></label>
+          <button id="reset" aria-label="恢复初始视角" title="恢复视角 · R">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 10a8 8 0 1 1 1 8M4 4v6h6" />
+            </svg>
+          </button>
+          <button id="fullscreen" aria-label="切换全屏" title="全屏 · F">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 4H4v5M15 4h5v5M4 15v5h5M20 15v5h-5" />
+            </svg>
+          </button>
+          <div class="performance">
+            <span class="status-dot"></span><span id="fps">—</span
+            ><small>FPS</small>
+          </div>
+        </div>
+      </footer>
+      <div class="bottom-line">
+        <span>点击标记走近互动 · E 互动 · M 音乐 · TAB 航线图</span
+        ><span>THE SIX HEARTS / A CLOCKWORK JOURNEY</span>
+      </div>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
