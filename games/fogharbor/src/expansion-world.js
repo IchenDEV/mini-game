@@ -584,6 +584,8 @@ export async function createExpansionWorld(scene, ground) {
     vents,
     update(dt, player, camera) {
       current = expansionBuildingAt(player.x, player.z);
+      // Flying above a roof must not open the room as though Nora entered its door.
+      if (current && Math.abs(player.y - current.height) > 1.5) current = null;
       sightTarget.set(
         current?.x ?? player.x,
         (current?.height ?? player.y) + 1.3,

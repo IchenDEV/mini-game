@@ -57,6 +57,7 @@ export function accentPlacements() {
   for (const [frontX, rearX, height] of [[-42.2, -42.5, 3.25], [-16.4, -16.8, 3.18]]) {
     const front = CITY_PLOTS.find((plot) => plot.x === frontX && plot.z < 0);
     const rear = CITY_PLOTS.find((plot) => plot.x === rearX && plot.z < 0);
+    if (!front || !rear) continue;
     const a = new THREE.Vector3(-WALLS[front.name].windowX, 0, -WALLS[front.name].depth / 2 + .10).applyMatrix4(houseMatrix(front));
     const b = new THREE.Vector3(WALLS[rear.name].windowX, 0, -WALLS[rear.name].depth / 2 + .10).applyMatrix4(houseMatrix(rear));
     const length = Math.hypot(b.x - a.x, b.z - a.z);

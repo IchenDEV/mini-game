@@ -17,6 +17,8 @@ import {
   FOOTPRINTS,
 } from "./terrain.js";
 import { RAILWAY, railPoint } from "./railway.js";
+import { TRANSIT_STOPS, airRoutePoints } from "./transit.js";
+import { INDUSTRIAL_PARCELS } from "./industrial-layout.js";
 
 export const mapPoint = (x, z) => [18 + (x + 88) * 3.87, 12 + (z + 42) * 2.37];
 const points = (polygon) =>
@@ -179,6 +181,18 @@ export function cityMapMarkup() {
   for (const destination of Object.values(TERRACE_DESTINATIONS)) {
     const [x, y] = mapPoint(destination.x, destination.z);
     content.push(`<circle cx="${x}" cy="${y}" r="3" fill="#edc989"/>`);
+  }
+  for(const p of INDUSTRIAL_PARCELS) content.push(polygon([
+    [p.x-p.width/2,p.z-p.depth/2],[p.x+p.width/2,p.z-p.depth/2],
+    [p.x+p.width/2,p.z+p.depth/2],[p.x-p.width/2,p.z+p.depth/2],
+  ],"#744b36","#ce995a"));
+  content.push(`<polyline points="${points(airRoutePoints().map(p=>[p.x,p.z]))}" fill="none" stroke="#8bc3c7" stroke-width="3" stroke-dasharray="6 5"/>`);
+  const serviceRails = [];
+  for(let x=-43;x<=-15;x+=0.5) { const p=railPoint(x); serviceRails.push([p.x,p.z]); }
+  content.push(`<polyline points="${points(serviceRails)}" fill="none" stroke="#e0ad62" stroke-width="4"/>`);
+  for(const stop of TRANSIT_STOPS) {
+    const [x,y]=mapPoint(stop.x,stop.z), color=stop.mode==="train"?"#e0ad62":"#8bc3c7";
+    content.push(`<circle cx="${x}" cy="${y}" r="6" fill="#152b2d" stroke="${color}" stroke-width="2"/><text x="${x+9}" y="${y-7}" fill="${color}" stroke="#152b2d" stroke-width="4" paint-order="stroke" font-size="10">${stop.name}</text>`);
   }
   const [x, y] = mapPoint(-6.3, 1.6);
   content.push(

@@ -1,6 +1,8 @@
 import { partitionStaticSurfaces } from "./spatial-mesh.js";
 import { createSceneLOD, hasGeometryLODs } from "./model-lod.js";
 import { createExpansionWorld } from "./expansion-world.js";
+import { createTransit, TRANSIT_STOPS, TRANSIT_ROUTES } from "./transit.js";
+import { createIndustrialCity } from "./industrial-city.js";
 import { createExpansionLife } from "./expansion-life.js";
 import { createExpansionEvents } from "./expansion-events.js";
 import {
@@ -263,6 +265,8 @@ async function start() {
     scene.add(actor);
   }
   const playerCues = addPlayerVisibilityCue(actors.Nora);
+  const industrialCity = createIndustrialCity(scene, sculptedTransport);
+  obstacles.push(...industrialCity.obstacles);
   const life = createWorldLife(
     scene,
     lifeAsset.scene,
@@ -294,6 +298,7 @@ async function start() {
     ...sculptedDistricts.vents,
     ...sculptedTransport.vents,
     ...expansion.vents,
+    ...industrialCity.vents,
   ]);
   finishEnvironmentLighting(scene);
   const player = actors.Nora,
@@ -311,6 +316,7 @@ async function start() {
       heightAt(...state.position),
       state.position[1],
     );
+  const transit = createTransit(sculptedTransport, player);
   if (state.chapterComplete) {
     const start = { x: player.position.x + 1.2, z: player.position.z };
     if (canWalk(start.x, start.z, obstacles))
@@ -475,6 +481,9 @@ async function start() {
       building: b,
     });
   }
+  spots.push(...TRANSIT_STOPS.map(s => ({ ...s, transitStop: true,
+    anchor: new THREE.Vector3(s.x, s.height + 3, s.z),
+  })));
   const guideGeometry = new THREE.RingGeometry(0.2, 0.26, 32),
     guideMaterial = new THREE.MeshBasicMaterial({
       color: 0xf1cb79,
@@ -539,7 +548,7 @@ async function start() {
     spots.forEach((s) => s.button.classList.toggle("target", s.id === target));
   }
   function commit(event, payload) {
-    state.position = [player.position.x, player.position.z];
+    if (!transit.locked) state.position = [player.position.x, player.position.z];
     state = applyEvent(state, event, payload);
     try {
       localStorage.setItem(saveKey, JSON.stringify(state));
@@ -561,6 +570,8 @@ async function start() {
   }
   function go(point, spot = null) {
     if (!running || activeModal()) return;
+    if (transit.locked) { notify("到站后从升降台下到街面，再继续步行。"); return; }
+    transit.cancelWaiting();
     const result = route(player.position, point, obstacles);
     if (!result.length) {
       notify("沿石路与石桥走。目标附近的入口会留出通道。");
@@ -902,6 +913,11 @@ async function start() {
     openModal("journal");
   }
   function interact(spot) {
+    if (spot.transitStop) {
+      stop();
+      if (transit.request(spot.id)) notify("已经招呼过值班员。车辆靠稳后，升降台会带你上去。");
+      return;
+    }
     if (spot.building) {
       const b = spot.building;
       converse(
@@ -1146,6 +1162,72 @@ async function start() {
     } else if ($("#pump-inspection").open) inspectPump();
   };
   $("#map-button").onclick = () => openModal("city-map");
+  $("#transport-map-button").onclick = () => openModal("city-map");
+  for (const station of TRANSIT_STOPS) {
+    const button = document.createElement("button");
+    button.className = "choice-button transit-destination";
+    button.dataset.walkTo = station.id;
+    button.textContent = `${station.mode === "train" ? "铁路" : "飞艇"} · ${station.name}`;
+    $(".transit-destinations").append(button);
+  }
+  $("#transit-action").onclick = () => {
+    if (!running || activeModal()) return;
+    const service = transit.state();
+    if (service.passenger) transit.toggleExit();
+    else if (service.waiting) transit.cancelWaiting();
+    else {
+      const nearest = TRANSIT_STOPS.find(s => Math.hypot(player.position.x-s.x, player.position.z-s.z)<1.8);
+      if (nearest) interact(spots.find(s => s.id === nearest.id));
+    }
+    canvas.focus({ preventScroll: true });
+  };
+  let transitCopy = "", previousTransitStage = "";
+  function updateTransitHUD(interactive) {
+    const current = transit.state(), rider = current.passenger;
+    const stage = rider?.stage ?? "walking";
+    if (interactive && stage !== previousTransitStage) {
+      if (stage === "boarding" || stage === "exiting") audio.cue("transit-bell");
+      if (stage === "riding") audio.cue(rider.mode === "train" ? "steam-whistle" : "airship-horn");
+      previousTransitStage = stage;
+    }
+    const station = TRANSIT_STOPS.find(s => s.id === current.waiting) ??
+      TRANSIT_STOPS.find(s => Math.hypot(player.position.x-s.x,player.position.z-s.z)<2.3 && Math.abs(player.position.y-s.height)<0.4);
+    const panel = $("#transit-panel");
+    panel.hidden = !interactive || (!rider && !station);
+    if (panel.hidden) return;
+    const mode = rider?.mode ?? station.mode, service = current.services[mode];
+    let title, copy, action, disabled = false;
+    if (rider) {
+      title = rider.stage === "boarding" ? "升降台正在上行" : rider.stage === "exiting" ? "到站 · 回到街面" : `驶向${service.to.name}`;
+      copy = rider.stage === "boarding" ? "铜铃响了两声。扶索绷紧，踏板缓缓离开石路。"
+        : rider.stage === "exiting" ? "等踏板与石路齐平，再松开扶手。"
+        : mode === "train" ? service.progress < 0.5
+          ? "车身轻轻一晃。下面有人把饭盒举过头顶，朝末节车厢挥手。"
+          : "这段高架原本只运煤。工人们在末节焊上踏板，后来才有了客车。"
+        : service.progress < 0.5
+          ? "河上的绳索松开了。烟囱慢慢降到脚下，工坊的声音却还追得上来。"
+          : "船壳上每一块不同颜色的补丁，都出自山上那间学徒工坊。";
+      action = rider.exitAtNext ? "到站自动下车 · 点击留乘" : "继续留乘 · 点击预约下车";
+      disabled = rider.stage !== "riding";
+    } else {
+      const here = service.docked && service.from.id === station.id;
+      title = station.name;
+      const seconds = here ? service.remaining : service.from.id === station.id
+        ? service.remaining + TRANSIT_ROUTES[mode].duration + TRANSIT_ROUTES[mode].dwell
+        : service.docked ? service.remaining + TRANSIT_ROUTES[mode].duration : service.remaining;
+      copy = here ? `车辆已靠稳 · ${Math.ceil(seconds)} 秒后发车。` : `下一班约 ${Math.ceil(seconds)} 秒后抵达。可在此候车，也可继续步行。`;
+      action = current.waiting ? "取消候车" : here ? "搭乘" : "在此候车";
+      disabled = Math.hypot(player.position.x-station.x,player.position.z-station.z)>1.8;
+    }
+    const next = [mode,title,copy,action,disabled].join("|");
+    if (next === transitCopy) return;
+    transitCopy = next;
+    $("#transit-line").textContent = TRANSIT_ROUTES[mode].english;
+    $("#transit-title").textContent = title;
+    $("#transit-copy").textContent = copy;
+    $("#transit-action").textContent = action;
+    $("#transit-action").disabled = disabled;
+  }
   for (const area of EXPANSION_SCENES) {
     const button = document.createElement("button");
     button.className = "choice-button";
@@ -1158,7 +1240,7 @@ async function start() {
       (b.onclick = () => {
         const spot = spots.find((s) => s.id === b.dataset.walkTo);
         $("#city-map").close();
-        if (spot) go(spot, spot);
+        if (spot) go(spot, spot.transitStop ? null : spot);
         else
           go(
             EXPANSION_DESTINATIONS[b.dataset.walkTo] ??
@@ -1206,7 +1288,7 @@ async function start() {
     );
     const milo = actors.Milo;
     let companionWalking = false;
-    if (state.chapterComplete && interactive) {
+    if (state.chapterComplete && interactive && !transit.locked) {
       const distance = milo.position.distanceTo(player.position);
       if (t > companionPlanAt) {
         companionPlanAt = t + 1.1;
@@ -1265,7 +1347,7 @@ async function start() {
       milo.position.y + 2.8,
       milo.position.z,
     );
-    if (running && t - lastPositionSave > 3) {
+    if (running && !transit.locked && t - lastPositionSave > 3) {
       lastPositionSave = t;
       state.position = [player.position.x, player.position.z];
       try {
@@ -1295,6 +1377,7 @@ async function start() {
     openModal("restart");
   };
   $("#confirm-restart").onclick = () => {
+    transit.reset();
     state = freshState();
     try {
       localStorage.setItem(saveKey, JSON.stringify(state));
@@ -1352,7 +1435,7 @@ async function start() {
   }
   canvas.addEventListener("pointerup", (e) => {
     if (!down) return;
-    if (!dragged) {
+    if (!dragged && !transit.locked) {
       const r = canvas.getBoundingClientRect();
       pointer.set(
         ((e.clientX - r.left) / r.width) * 2 - 1,
@@ -1434,6 +1517,7 @@ async function start() {
       ].includes(key)
     ) {
       e.preventDefault();
+      if (transit.locked) return;
       keys.add(key);
       path = [];
       pending = null;
@@ -1442,8 +1526,10 @@ async function start() {
     if (e.repeat) return;
     if (key === "j") journal();
     if (key === "m") openModal("city-map");
+    if (key === "t") openModal("city-map");
     if (key === "r") resetCamera();
     if (key === "e") {
+      if (transit.locked) { transit.toggleExit(); return; }
       const nearest = spots
         .map((s) => ({
           spot: s,
@@ -1547,7 +1633,19 @@ async function start() {
       oldX = player.position.x,
       oldZ = player.position.z;
     for (const cue of playerCues) cue.visible = interactive;
-    if (interactive) {
+    const wasRiding = transit.locked;
+    transit.update(dt, interactive);
+    if (wasRiding && !transit.locked) {
+      stop();
+      lastPositionSave = -Infinity;
+    }
+    const airborne = transit.state().passenger?.mode === "airship";
+    if (!layoutPreview) {
+      const altitude = airborne ? THREE.MathUtils.clamp((player.position.y - 8) / 18, 0, 1) : 0;
+      scene.fog.near = THREE.MathUtils.damp(scene.fog.near, 48 + altitude * 35, 2, dt);
+      scene.fog.far = THREE.MathUtils.damp(scene.fog.far, 88 + altitude * 72, 2, dt);
+    }
+    if (interactive && !transit.locked && !wasRiding) {
       const d = direction(keys, yaw);
       if (d.x || d.z) move(player.position, d, 3.2 * dt, obstacles);
       else if (path.length) {
@@ -1583,7 +1681,7 @@ async function start() {
           interact(spot);
       }
     }
-    const step = Math.hypot(player.position.x - oldX, player.position.z - oldZ);
+    const step = transit.locked || wasRiding ? 0 : Math.hypot(player.position.x - oldX, player.position.z - oldZ);
     movementDistance += step;
     walkPhase += step * 6;
     const walking = step > 0.00001;
@@ -1626,7 +1724,7 @@ async function start() {
     ])
       if (actorJoints.Nora[part])
         actorJoints.Nora[part].rotation.x = gait * sign;
-    player.position.y =
+    if (!transit.locked && !wasRiding) player.position.y =
       heightAt(player.position.x, player.position.z) +
       (walking ? Math.abs(Math.sin(walkPhase)) * 0.025 : 0);
     for (const name of Object.keys(actors)) {
@@ -1661,7 +1759,7 @@ async function start() {
     } else
       focusTarget.set(
         player.position.x + (talking ? 1.6 : 2.8),
-        heightAt(player.position.x, player.position.z) + 2.3,
+        player.position.y + (airborne ? -1.5 : 2.3),
         player.position.z - (talking ? 2.6 : 3.8),
       );
     focus.lerp(focusTarget, 1 - Math.exp(-(reducedMotion ? 8 : 1.7) * dt));
@@ -1674,7 +1772,7 @@ async function start() {
           ? 10
           : talking
             ? Math.max(23, desiredHeight * 0.94)
-            : desiredHeight;
+            : desiredHeight + (airborne ? 7 : 0);
     viewHeight = THREE.MathUtils.damp(
       viewHeight,
       zoom,
@@ -1696,7 +1794,8 @@ async function start() {
     marker.visible = path.length > 0;
     markerMaterialPulse();
     world.update(time, dt, state);
-    sculptedTransport.update(time);
+    if (Number.isFinite(previewRailTime)) sculptedTransport.train.update(previewRailTime);
+    industrialCity.update(time, dt, transit, player.position);
     sculptedDistricts.update(time);
     life.update(time, dt, player.position, interactive);
     expansion.update(dt, player.position, camera);
@@ -1753,7 +1852,7 @@ async function start() {
         !!activeModal() ||
         Math.abs(p.x) > 0.97 ||
         Math.abs(p.y) > 0.94 ||
-        (!target && d > 4);
+        transit.locked || (!target && d > (spot.transitStop ? 13 : 4));
       spot.button.style.left = `${((p.x + 1) * innerWidth) / 2}px`;
       spot.button.style.top = `${((1 - p.y) * innerHeight) / 2}px`;
       spot.button.classList.toggle("near", d < 1.8);
@@ -1762,10 +1861,11 @@ async function start() {
         nearest = spot;
       }
     }
-    $("#arrival-hint").hidden = !interactive || distance >= 1.8;
+    $("#arrival-hint").hidden = !interactive || transit.locked || distance >= 1.8;
     if (interactive && distance < 1.8)
       $("#arrival-hint span").textContent =
-        `${nearest.name} · ${["milo", "molly", "beck"].includes(nearest.id) || nearest.building?.primary ? "交谈" : "查看"}`;
+        `${nearest.name} · ${nearest.transitStop ? "候车 / 搭乘" : ["milo", "molly", "beck"].includes(nearest.id) || nearest.building?.primary ? "交谈" : "查看"}`;
+    updateTransitHUD(interactive);
     // Select once using the main camera; reflection passes reuse the same levels.
     sceneLOD.update(camera, player.position);
     ground.reflect(camera, focus);
@@ -1822,6 +1922,7 @@ async function start() {
       running,
       overture: overture?.beat ?? null,
       talking,
+      transit: transit.state(),
       railway: sculptedTransport.train.state(),
       life: life.state(),
       expansion: {

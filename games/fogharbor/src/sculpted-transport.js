@@ -84,9 +84,11 @@ export function createSteamTrain(asset, { railPreviewTime = null } = {}) {
     b = new THREE.Vector3(),
     direction = new THREE.Vector3();
   let lastTime = 0;
-  function update(time) {
+  let serviceTravel = null;
+  function update(time, travelOverride = null) {
     lastTime = railPreviewTime ?? time;
-    const travel = railTravelAt(lastTime, formationLength);
+    serviceTravel = travelOverride;
+    const travel = travelOverride ?? railTravelAt(lastTime, formationLength);
     for (const vehicle of vehicles) {
       const pose = railVehiclePoseAt(
         travel.distance + vehicle.offset,
@@ -137,7 +139,7 @@ export function createSteamTrain(asset, { railPreviewTime = null } = {}) {
   }
   const smoke = [0, 0, 0, 0.85];
   function steamAt(time) {
-    const travel = railTravelAt(railPreviewTime ?? time, formationLength);
+    const travel = serviceTravel ?? railTravelAt(railPreviewTime ?? time, formationLength);
     const pose = railVehiclePoseAt(
       travel.distance + engine.offset,
       engine.wheelBase,
@@ -195,7 +197,9 @@ export function createAirship(asset) {
       object.intensity = Math.min(object.intensity, 3);
     }
   });
-  function update(time) {
+  let servicePose = null;
+  function update(time, poseOverride = null) {
+    servicePose = poseOverride;
     root.position.set(
       3.5 + Math.sin(time * 0.025) * 3.5,
       13.4 + Math.sin(time * 0.13) * 0.08,
@@ -210,11 +214,22 @@ export function createAirship(asset) {
       p.rotation.x = time * (i ? -26 : 26);
     });
     rudder.rotation.y = 0.08 * Math.sin(time * 0.19);
+    if (poseOverride) {
+      root.position.copy(poseOverride.position);
+      root.rotation.set(0, poseOverride.yaw, 0);
+    }
   }
   const smoke = [0, 0, 0, 0.3];
   const exhaust = new THREE.Vector3();
   const exhaustRotation = new THREE.Euler();
   function steamAt(time) {
+    if (servicePose) {
+      root.updateMatrixWorld(true);
+      exhaust.set(-0.4, -1.05, 0);
+      root.localToWorld(exhaust);
+      smoke[0] = exhaust.x; smoke[1] = exhaust.y; smoke[2] = exhaust.z;
+      return smoke;
+    }
     // A small exhaust behind the machinery, distinct from the large fabric envelope.
     exhaustRotation.set(
       0.012 * Math.sin(time * 0.11),
@@ -309,7 +324,7 @@ export function createAuthoredRailway(asset, sleeperMaterial = null) {
     box,
     cylinder,
     line,
-    { deckThickness: 0.025, contactWire: false },
+    { deckThickness: 0.025, contactWire: false, guardLateral: -1.01 },
   );
   function instances(prototype, placements) {
     for (const part of modelMeshes(prototype)) {

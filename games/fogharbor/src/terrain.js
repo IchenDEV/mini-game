@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { industrialOverlap } from "./industrial-layout.js";
 import { foliageGeometry } from "./architecture.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
@@ -225,6 +226,14 @@ export const TERRACE_DESTINATIONS = {
   inncourt: { x: -57, z: 33 },
   postcourt: { x: -32, z: 28 },
   chapelcourt: { x: 4, z: 40.3 },
+};
+export const FOOTPRINTS = {
+  Terrace: [4.2, 4.4],
+  Townhouse: [5.1, 4.8],
+  CornerInn: [5.8, 4.9],
+  Warehouse: [5.8, 5.4],
+  PostOffice: [6.3, 5.0],
+  Chapel: [6.7, 6.5],
 };
 export const CITY_PLOTS = [
   { name: "Terrace", x: -48, z: 26.7, size: .67, heightScale: 1.12, yaw: Math.PI, terrace: "post-court" },
@@ -626,7 +635,11 @@ export const CITY_PLOTS = [
     yaw: 3.3215926535897933,
     terrace: "inn-court",
   },
-];
+].filter(plot => {
+  if (plot.z > -13) return true;
+  const [w,d] = FOOTPRINTS[plot.name], c = Math.abs(Math.cos(plot.yaw)), s = Math.abs(Math.sin(plot.yaw));
+  return !industrialOverlap(plot.x, plot.z, (w*c+d*s)*plot.size/2+0.2, (w*s+d*c)*plot.size/2+0.2);
+});
 export const COURTYARD_PROPS = [
   { kind: "lamp", x: -36.5, z: 45.7, terrace: "clock-walk" },
   { kind: "planter", x: -28, z: 45.9, terrace: "clock-walk" },
@@ -726,14 +739,6 @@ export const NORTH_PAVING = [
     [27, -18],
   ],
 ];
-export const FOOTPRINTS = {
-  Terrace: [4.2, 4.4],
-  Townhouse: [5.1, 4.8],
-  CornerInn: [5.8, 4.9],
-  Warehouse: [5.8, 5.4],
-  PostOffice: [6.3, 5.0],
-  Chapel: [6.7, 6.5],
-};
 export function plotHeight(plot) {
   return plot.terrace
     ? TERRACES.find((t) => t.id === plot.terrace).height

@@ -10,9 +10,9 @@ export function createSoundscape() {
     lastPlaceBeat = -1,
     lastNote = -1,
     lastBeat = -1;
-  function note(frequency, duration = 0.3, gain = 0.12, type = "triangle") {
+  function note(frequency, duration = 0.3, gain = 0.12, type = "triangle", delay = 0) {
     if (!context || !enabled) return;
-    const now = context.currentTime,
+    const now = context.currentTime + delay,
       osc = context.createOscillator(),
       amp = context.createGain();
     osc.type = type;
@@ -83,6 +83,15 @@ export function createSoundscape() {
         );
     },
     cue(kind) {
+      if (kind === "transit-bell") {
+        note(784, 0.6, 0.08, "sine"); note(784, 0.6, 0.08, "sine", 0.32);
+        return;
+      }
+      if (kind === "steam-whistle" || kind === "airship-horn") {
+        const base = kind === "steam-whistle" ? 330 : 146.8;
+        note(base, 1.2, 0.055, "triangle"); note(base * 1.5, 1, 0.035, "sine");
+        return;
+      }
       if (kind === "success") {
         note(523.25, 0.45, 0.13);
         setTimeout(() => note(659.25, 0.5, 0.11), 120);

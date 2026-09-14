@@ -47,6 +47,11 @@ for (let x = RAILWAY.startX + 0.1; x < RAILWAY.endX + 0.099; x += 0.1) {
   if (nextX === RAILWAY.endX) break;
 }
 const length = arc.at(-1).distance;
+export function railDistanceAtX(x) {
+  const i = Math.min(arc.length - 2, Math.max(0, Math.floor((x - RAILWAY.startX) / 0.1)));
+  const a = arc[i], b = arc[i + 1];
+  return a.distance + (b.distance - a.distance) * THREE.MathUtils.clamp((x - a.x) / (b.x - a.x), 0, 1);
+}
 const initialStation = arc.reduce(
   (best, p) => (Math.abs(p.x - 2) < Math.abs(best.x - 2) ? p : best),
   arc[0],
@@ -200,7 +205,7 @@ export function addRailRunningSurface(
   emitBox,
   emitCylinder,
   emitLine,
-  { deckThickness = 0.27, contactWire = true } = {},
+  { deckThickness = 0.27, contactWire = true, guardLateral = 1.01 } = {},
 ) {
   emitGeometry(
     railPrismGeometry(
@@ -241,13 +246,13 @@ export function addRailRunningSurface(
   // Retain the original one-sided iron safety railing, now following the same centerline.
   const guardTop = RAILWAY.deckTopY + 0.85;
   for (let x = Math.ceil(startX / 1.1) * 1.1; x < endX; x += 1.1) {
-    const p = railPoint(x, 1.01);
+    const p = railPoint(x, guardLateral);
     emitCylinder(p.x, RAILWAY.deckTopY + 0.425, p.z, 0.041, 0.85, "iron");
   }
   for (const y of [RAILWAY.deckTopY + 0.31, guardTop]) {
     for (let x = startX; x < endX; x += 0.5) {
-      const a = railPoint(x, 1.01),
-        b = railPoint(Math.min(endX, x + 0.5), 1.01);
+      const a = railPoint(x, guardLateral),
+        b = railPoint(Math.min(endX, x + 0.5), guardLateral);
       emitLine([a.x, y, a.z], [b.x, y, b.z], 0.025, "iron");
     }
   }

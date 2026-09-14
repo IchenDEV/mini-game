@@ -1,3 +1,5 @@
+import { CITY_BOUNDS } from "./movement.js";
+
 export const SAVE_KEY = "fogharbor-saltlane-v2";
 export const OBSERVATIONS = ["lid", "spout", "note"];
 export const freshState = () => ({
@@ -66,10 +68,10 @@ export function readState(value) {
     Array.isArray(value.position) &&
     value.position.length === 2 &&
     value.position.every(Number.isFinite) &&
-    value.position[0] >= -64 &&
-    value.position[0] <= 14 &&
-    value.position[1] >= -13 &&
-    value.position[1] <= 22
+    value.position[0] >= CITY_BOUNDS.minX &&
+    value.position[0] <= CITY_BOUNDS.maxX &&
+    value.position[1] >= CITY_BOUNDS.minZ &&
+    value.position[1] <= CITY_BOUNDS.maxZ
   )
     s.position = [...value.position];
   s.wharfMet = s.chapterComplete && value.wharfMet === true;

@@ -165,6 +165,15 @@ export const EXPANSION_BUILDINGS = EXPANSION_SCENES.flatMap((scene, index) => {
     [-6, 3.2, Math.PI / 2],
     [6, 3.2, -Math.PI / 2],
   ];
+  // The market remains an arcade; the works form a staggered street and the
+  // printers/aeronauts keep a sheltered L-shaped yard. Door coordinates follow each shell.
+  if (["scene06", "scene09"].includes(scene.id)) {
+    slots[1] = [-6.2, 2.8, 0]; slots[2] = [6.2, 2.8, 0];
+  } else if (["scene03", "scene07", "scene10"].includes(scene.id)) {
+    slots[2] = [6.2, 2.8, 0];
+  } else if (scene.id === "scene08") {
+    slots[1] = [-6.2, 2.8, 0];
+  }
   return scene.buildings.map((name, slot) => ({
     id: `B${String(index * 3 + slot + 1).padStart(2, "0")}`,
     sceneId: scene.id,
