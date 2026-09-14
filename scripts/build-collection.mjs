@@ -44,7 +44,7 @@ const neonRoot = path.join(outputRoot, "best-game");
 mkdirSync(neonRoot, { recursive: true });
 cpSync(path.join(root, "games", "best-game", "index.html"), path.join(neonRoot, "index.html"));
 
-for (const slug of ["pokemon-clone", "pubg-clone", "z-clone"]) {
+for (const slug of ["pokemon-clone", "pubg-clone", "z-clone", "fogharbor"]) {
   copyBuild(slug);
 }
 

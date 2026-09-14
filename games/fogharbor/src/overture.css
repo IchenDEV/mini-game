@@ -1,0 +1,35 @@
+body.performing-overture #experience > :not(#scene), body.performing-overture > dialog { visibility: hidden; }
+#overture { position:fixed; inset:0; z-index:100; color:#eddfbe; font-family:Georgia,'Songti SC',serif; }
+#overture .stage-curtain { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+.stage-vignette { position:absolute; inset:0; background:radial-gradient(ellipse at 50% 47%,transparent 28%,#07070775 76%,#070707 110%); pointer-events:none; }
+.stage-frame { position:absolute; inset:19px; border:1px solid #bb956140; box-shadow:0 0 0 5px #1b101324; pointer-events:none; }
+.stage-playbill { position:absolute; inset:15% 10% 10%; text-align:center; display:flex; flex-direction:column; align-items:center; justify-content:center; transition:opacity 1.7s; text-shadow:0 2px 18px #1d000a; }
+.stage-playbill.departed { opacity:0; pointer-events:none; }
+.stage-edition { font-size:11px; letter-spacing:.35em; }
+.stage-rule { width:130px; margin:14px 0; color:#d8b06a; font-size:22px; }
+#overture h1 { font-size:clamp(36px,5.8vw,90px); font-weight:400; letter-spacing:.14em; margin:0; line-height:1.1; }
+.stage-zh-title { font-size:17px; letter-spacing:.55em; margin:15px 0 30px; }
+.stage-act { font-size:10px; letter-spacing:.35em; margin:0 0 12px; color:#d0ab70; }
+#overture h2 { font-size:23px; font-weight:400; letter-spacing:.25em; margin:0 0 28px; }
+#overture button { cursor:pointer; color:inherit; font:inherit; border-radius:0; box-shadow:none; }
+#overture button:focus-visible { outline:2px solid #f4d298; outline-offset:6px; }
+#overture button:disabled { opacity:.4; cursor:default; }
+#overture .stage-enter { padding:13px 34px; border:1px solid #b59564; background:#23091480; font-size:16px; letter-spacing:.2em; }
+.stage-enter span { display:block; font-size:8px; letter-spacing:.23em; margin-top:8px; }
+.stage-note { margin-top:25px; color:#d1bfa4; font-size:11px; letter-spacing:.1em; }
+.stage-caption { position:absolute; bottom:10%; left:20%; right:20%; text-align:center; padding:26px 30px 15px; background:linear-gradient(90deg,transparent,#0c1110ed 18%,#0c1110ed 82%,transparent); }
+.stage-caption[hidden] { display:none; }
+.stage-speaker { color:#d7b780; font-size:12px; letter-spacing:.2em; }
+.stage-caption p { font-size:clamp(17px,1.65vw,24px); line-height:1.8; margin:10px 0 13px; }
+#overture .stage-next { font-size:12px; padding:6px 15px; border:0; border-bottom:1px solid #a98b5755; background:none; }
+.stage-next span { margin-left:13px; color:#b8a885; }
+.stage-controls { position:absolute; bottom:30px; left:7%; right:7%; display:flex; justify-content:flex-end; align-items:center; gap:24px; font-family:system-ui,sans-serif; font-size:11px; color:#dac5a5; }
+#overture .stage-controls button { border:0; background:transparent; padding:8px 0; font-size:11px; }
+.stage-controls label { display:flex; align-items:center; gap:6px; }
+.stage-controls input { accent-color:#b89a65; }
+@media(max-width:650px) { .stage-caption { left:5%; right:5%; bottom:14%; padding:20px 15px 10px; } .stage-controls { gap:16px; bottom:23px; } .stage-note { font-size:10px; } .stage-zh-title { margin-bottom:20px; } }
+@media(prefers-reduced-motion:reduce) { .stage-playbill { transition:none; } }
+
+.stage-caption.stage-action { background:none; padding:10px; }
+.stage-action .stage-speaker, .stage-action p { display:none; }
+#overture .stage-action .stage-next { padding:13px 22px; background:#152521e8; border:1px solid #b89955; font-size:14px; }

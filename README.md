@@ -1,6 +1,6 @@
 # AI 小游戏合集
 
-这个仓库集中维护五个独立的浏览器小游戏。原来的四个单独仓库以 Git subtree 方式并入，提交历史仍可追溯；GitHub Pages 会在一次构建中发布全部游戏。
+这个仓库集中维护六个独立的浏览器小游戏。已合并的独立项目保留其目录结构；GitHub Pages 会在一次构建中发布全部游戏。
 
 | 游戏 | 简介 | 在线游玩 | 源码目录 |
 | --- | --- | --- | --- |
@@ -9,6 +9,7 @@
 | Pokémon Web Clone | Game Boy 风格的怪物收集 JRPG 原型 | [开始游戏](https://blogs.idevlab.dev/mini-game/games/pokemon-clone/) | [`games/pokemon-clone`](games/pokemon-clone) |
 | 孤圈行动 | Three.js 浏览器大逃杀原型 | [开始游戏](https://blogs.idevlab.dev/mini-game/games/pubg-clone/) | [`games/pubg-clone`](games/pubg-clone) |
 | 时之笛 Web Clone | Three.js 开放世界动作致敬作品 | [开始游戏](https://blogs.idevlab.dev/mini-game/games/z-clone/) | [`games/z-clone`](games/z-clone) |
+| 雾港修理簿 | 等距视角的维多利亚蒸汽朋克河岸故事 | [开始游戏](https://blogs.idevlab.dev/mini-game/games/fogharbor/) | [`games/fogharbor`](games/fogharbor) |
 
 ## 仓库结构
 
@@ -20,7 +21,8 @@
 │   ├── best-game/           # 霓虹风暴
 │   ├── pokemon-clone/       # 怪物收集 JRPG
 │   ├── pubg-clone/          # 孤圈行动
-│   └── z-clone/             # 时之笛 Web Clone
+│   ├── z-clone/             # 时之笛 Web Clone
+│   └── fogharbor/           # 雾港修理簿
 └── scripts/
     └── build-collection.mjs # 汇总各游戏的 Pages 产物
 ```
