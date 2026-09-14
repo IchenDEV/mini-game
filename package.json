@@ -13,7 +13,7 @@
     "build:collection": "node scripts/build-collection.mjs",
     "build:pages": "pnpm build && pnpm build:collection",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run",
+    "test": "vitest run && npm --prefix games/fogharbor test",
     "test:watch": "vitest",
     "preview": "vite preview"
   },

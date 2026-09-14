@@ -18,6 +18,10 @@ export default defineConfig(({ command }) => ({
   test: {
     exclude: [...configDefaults.exclude, "games/brasshaven/tests/**"],
     environment: "jsdom",
+    environmentOptions: {
+      jsdom: { url: "http://localhost/" },
+    },
     setupFiles: "./src/test/setup.ts",
+    include: ["src/**/*.test.ts"],
   },
 }));

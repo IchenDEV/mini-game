@@ -1,0 +1,74 @@
+{
+  "city-kit-v1": {
+    "triangles": [
+      169549,
+      70372,
+      27462
+    ],
+    "bytes": 9444488,
+    "sourceSha256": "706e5f1d3201eb079a1e42e7254f0aaf21d8434b3d625848b133220b3dd930d1"
+  },
+  "trees-v1": {
+    "triangles": [
+      34668,
+      14554,
+      5541
+    ],
+    "bytes": 1691480,
+    "sourceSha256": "3e9852d86e2b9f7ccf5cff0c80390f3f01447143f4d257ba94ffd63da32b3a93"
+  },
+  "masonry-v1": {
+    "triangles": [
+      2492,
+      1036,
+      400
+    ],
+    "bytes": 143532,
+    "sourceSha256": "8355da90447d3a4ef5b368b5dc9baab07c4271be0b3835bbf494780443fa69d0"
+  },
+  "expansion-buildings-v1": {
+    "triangles": [
+      109534,
+      54836,
+      36860
+    ],
+    "bytes": 6001404,
+    "sourceSha256": "9f160c7dcc2ec52bcfa39e7a8713b1cf9a9d16d15c3da4a536bb1cb1ee8a7f1e"
+  },
+  "wharf-v1": {
+    "triangles": [
+      135002,
+      56194,
+      21545
+    ],
+    "bytes": 7583888,
+    "sourceSha256": "5228f6168b39bf9611ccb987de650e3cd05344023ee7034b02ad8f18e5f08ba6"
+  },
+  "pumpworks-v1": {
+    "triangles": [
+      107961,
+      42194,
+      16119
+    ],
+    "bytes": 5514232,
+    "sourceSha256": "a56e61e2dc40d761c04d1527f8b2d7df3d35090bd3d6f4bcbe1f0993a5b6e364"
+  },
+  "architecture-accents-v1": {
+    "triangles": [
+      16312,
+      6908,
+      2804
+    ],
+    "bytes": 960004,
+    "sourceSha256": "c8c6ef9f9882b8d1bbcd73cf4b5d054a2042dc8ae826f0fe50955295962c14ad"
+  },
+  "railway-kit-v1": {
+    "triangles": [
+      7612,
+      3190,
+      1240
+    ],
+    "bytes": 411460,
+    "sourceSha256": "53f05830fa7b3cbe6f354283f4246d2cc86036fda1dbb3490a512b2ce047f61b"
+  }
+}

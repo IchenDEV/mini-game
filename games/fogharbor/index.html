@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#102c2c" />
+    <meta
+      name="description"
+      content="雾港修理簿：在一条会呼吸的蒸汽街巷，重新开门营业。原创 Three.js 等距体素叙事游戏。"
+    />
+    <title>雾港修理簿 · 河岸与上城</title>
+    <script id="local-file-entry">
+      if (location.protocol === "file:")
+        location.replace(new URL("Fogharbor.html", location.href));
+    </script>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%230e292b'/%3E%3Ccircle cx='32' cy='32' r='20' stroke='%23c2a46a' stroke-width='6' fill='none'/%3E%3Cpath d='M32 8v12m0 24v12M8 32h12m24 0h12M15 15l9 9m16 16l9 9M15 49l9-9m16-16l9-9' stroke='%23c2a46a' stroke-width='6'/%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <svg class="icon-defs" aria-hidden="true">
+      <defs>
+        <symbol id="icon-gear" viewBox="0 0 32 32">
+          <path
+            d="M13 2h6l1 5 4 2 5-1 3 5-4 4v4l-4 3-1 6h-6l-2-5-4-2-5 1-3-5 4-4v-4l4-3z"
+          />
+          <circle cx="16" cy="16" r="6" class="icon-hole" />
+        </symbol>
+        <symbol id="icon-book" viewBox="0 0 32 32">
+          <path
+            d="M16 8C12 5 6 5 3 7v20c4-2 9-2 13 1 4-3 9-3 13-1V7c-3-2-9-2-13 1zM16 8v20"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+          />
+        </symbol>
+        <symbol id="icon-wrench" viewBox="0 0 32 32">
+          <path
+            d="M29 3l-7 5-4-4 4-4c-7-1-12 5-10 11L2 22a4 4 0 006 6l11-11C26 18 31 11 29 3z"
+          />
+        </symbol>
+      </defs>
+    </svg>
+    <main id="experience" aria-label="雾港连续河岸三维故事场景">
+      <canvas
+        id="scene"
+        tabindex="0"
+        aria-label="点击地面、WASD或方向键移动；拖拽旋转；滚轮缩放；E互动"
+      ></canvas>
+      <header class="chapter-hud enamel">
+        <svg class="seal" aria-hidden="true"><use href="#icon-gear" /></svg>
+        <div>
+          <h1>FOGHARBOR</h1>
+          <p id="district-title">SALT-RUST LANE</p>
+        </div>
+      </header>
+      <section id="quest" class="enamel" aria-label="当前目标">
+        <div class="quest-row">
+          <span class="quest-seal">!</span>
+          <h2 id="quest-title">重新营业</h2>
+          <button
+            id="guide-target"
+            title="沿道路前往目标"
+            aria-label="沿道路前往目标"
+          >
+            ⌖
+          </button>
+        </div>
+        <p id="quest-copy">米洛带来了一张旧订单。</p>
+        <div id="quest-track" aria-label="河岸故事进度"></div>
+      </section>
+      <nav class="utilities" aria-label="游戏工具">
+        <button class="round-tool" id="transport-map-button" aria-label="火车与飞艇线路" title="交通线路 · T">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 5h14v19H9zM9 15h14M12 8h8v5h-8zM11 24l-3 4M21 24l3 4M7 28h18"/><circle cx="12" cy="20" r="1"/><circle cx="20" cy="20" r="1"/></svg>
+        </button>
+        <button
+          class="round-tool"
+          id="map-button"
+          aria-label="城区图"
+          title="城区图 · M"
+        >
+          <svg
+            viewBox="0 0 32 32"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.4"
+          >
+            <path d="M3 8l8-4 10 4 8-4v21l-8 4-10-4-8 4zM11 4v21M21 8v21" />
+          </svg>
+        </button>
+        <button
+          class="round-tool"
+          id="journal-button"
+          aria-label="维修簿"
+          title="维修簿 · J"
+        >
+          <svg><use href="#icon-book" /></svg>
+        </button>
+        <button
+          class="round-tool"
+          id="settings-button"
+          aria-label="设置与操作"
+          title="设置与操作"
+        >
+          <svg><use href="#icon-gear" /></svg>
+        </button>
+        <div class="weather">☀ <span>AFTER RAIN</span></div>
+      </nav>
+      <div id="travel-caption" class="enamel" role="status" hidden></div>
+      <aside id="transit-panel" class="enamel" aria-label="搭乘交通工具" hidden>
+        <p id="transit-line">WORKERS' RAILWAY</p>
+        <h2 id="transit-title"></h2>
+        <p id="transit-copy" aria-live="polite"></p>
+        <button id="transit-action" class="choice-button">搭乘</button>
+      </aside>
+      <div id="world-labels" aria-label="人物与互动目标"></div>
+      <div id="arrival-hint" class="enamel" role="status" hidden>
+        <kbd>E</kbd><span></span>
+      </div>
+      <div
+        id="notice"
+        class="enamel"
+        role="status"
+        aria-live="polite"
+        hidden
+      ></div>
+      <footer class="control-strip enamel">
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动</span><i></i
+        ><span>拖拽环视</span><i></i><span>滚轮缩放</span>
+      </footer>
+      <div id="loading" role="status">
+        <svg><use href="#icon-gear" /></svg>
+        <h2>盐锈巷的早晨</h2>
+        <p>正在打开工坊的门……</p>
+      </div>
+      <div id="error" role="alert" hidden></div>
+      <dialog id="title-screen">
+        <div class="enamel title-card">
+          <svg class="title-seal"><use href="#icon-wrench" /></svg>
+          <h2 class="english-title">FOGHARBOR</h2>
+          <p class="chapter-name">雾港修理簿 · 河岸故事</p>
+          <p class="opening-copy">
+            盐锈巷的雨刚停。<br />今天，诺拉第一次独自开门。
+          </p>
+          <button id="begin" class="brass-button">
+            开始营业 <span>→</span>
+          </button>
+          <p class="small-note">
+            <a
+              href="?overture=1"
+              style="color: inherit; text-underline-offset: 5px"
+              >观看第一幕 · 门照常开</a
+            >
+          </p>
+        </div>
+      </dialog>
+      <dialog id="dialogue">
+        <div class="enamel dialogue-box">
+          <div class="portrait-frame">
+            <img id="portrait" src="./portraits/nora.png" alt="诺拉" />
+          </div>
+          <div class="speech">
+            <div class="speaker-row">
+              <h2 id="speaker">诺拉</h2>
+              <span id="line-counter"></span>
+            </div>
+            <p id="line"></p>
+            <p id="stage-direction" hidden></p>
+            <div id="dialogue-choices"></div>
+            <div class="dialogue-actions">
+              <button id="skip-dialogue" class="quiet-button">跳过本段</button
+              ><button id="next-line" class="brass-button">
+                继续 <span>→</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </dialog>
+      <dialog id="inspection">
+        <section class="enamel interaction-panel">
+          <button
+            class="close-button"
+            data-close="inspection"
+            aria-label="暂时离开工作台"
+          >
+            ×
+          </button>
+          <p class="panel-context">工作台 · 莫莉的茶炉</p>
+          <h2 id="inspect-title">茶炉为什么漏水？</h2>
+          <p class="panel-description" id="inspect-description">
+            委托单说：倒水的时候才会漏。
+          </p>
+          <div class="evidence-buttons">
+            <button data-observe="lid">
+              <span>盖口</span><small>检查边缘</small></button
+            ><button data-observe="spout">
+              <span>壶嘴</span><small>检查接缝</small></button
+            ><button data-observe="note">
+              <span>委托说明</span><small>了解用途</small>
+            </button>
+          </div>
+          <div id="evidence-readout" aria-live="polite">
+            选择部位，查看痕迹或留言。
+          </div>
+          <div id="diagnosis" hidden>
+            <h3>你的判断</h3>
+            <button class="choice-button" data-diagnosis="seal">
+              壶嘴接缝的密封圈磨损</button
+            ><button class="choice-button" data-diagnosis="boiler">
+              炉体损坏，需要整台换新
+            </button>
+            <p id="diagnosis-feedback" role="status"></p>
+          </div>
+          <div id="repair-controls" hidden>
+            <ol class="repair-steps">
+              <li>停用</li>
+              <li>替换</li>
+              <li>试水</li>
+            </ol>
+            <button class="brass-button" id="repair-action">停用茶炉</button>
+            <p class="small-note" id="repair-explanation"></p>
+          </div>
+        </section>
+      </dialog>
+      <dialog id="orders">
+        <section class="enamel wide-panel">
+          <button
+            class="close-button"
+            data-close="orders"
+            aria-label="暂时离开订单板"
+          >
+            ×
+          </button>
+          <p class="panel-context">工坊订单板</p>
+          <h2>给街坊一个准话</h2>
+          <p class="panel-description">
+            桥边的钟和洗衣院的绞盘都需要铜套。抽屉里只剩一个，先给哪一家用？
+          </p>
+          <div class="order-card completed">
+            <div>
+              <h3>莫莉的茶炉</h3>
+              <p>已修好 · 等待送回汤铺</p>
+            </div>
+            <span>今天交付 ✓</span>
+          </div>
+          <label class="order-card"
+            ><div>
+              <h3>洗衣院的手摇绞盘</h3>
+              <p>需要 1 份铜套</p>
+            </div>
+            <select id="order-winch" aria-label="绞盘交付安排">
+              <option value="">安排交付</option>
+              <option value="today">今天开工</option>
+              <option value="contact">联系街坊改期</option>
+              <option value="materials">说明缺料，等待补货</option>
+            </select></label
+          ><label class="order-card"
+            ><div>
+              <h3>街坊的旧报时钟</h3>
+              <p>需要 1 份铜套</p>
+            </div>
+            <select id="order-clock" aria-label="报时钟交付安排">
+              <option value="">安排交付</option>
+              <option value="today">今天开工</option>
+              <option value="contact">联系街坊改期</option>
+              <option value="materials">说明缺料，等待补货</option>
+            </select></label
+          >
+          <p id="orders-feedback" role="status"></p>
+          <button id="confirm-orders" class="brass-button">
+            把安排交给米洛 <span>→</span>
+          </button>
+        </section>
+      </dialog>
+      <dialog id="letter">
+        <article class="letter-sheet">
+          <span class="letter-stamp">WHARF No. 7</span>
+          <p>致 许默修理坊</p>
+          <h2 class="english-title">REPAIR REQUEST</h2>
+          <dl>
+            <dt>地址</dt>
+            <dd>第七码头 · 旧泵房外侧检查廊</dd>
+            <dt>委托人</dt>
+            <dd>贝克</dd>
+            <dt>设备型号</dt>
+            <dd>旧式回汽支路 · 局部传动装置</dd>
+          </dl>
+          <blockquote>
+            旧泵房的传动又有了空声。前次换的接头没坏，这回要看外面那一段。<br /><br />带着老型号的手册就行，不必推大件过来。找不到地方，就问米洛。从前他闭着眼都摸得进来。<br /><br />里面的支路先别动，来了我说明白。<br />——
+            贝克
+          </blockquote>
+          <p class="letter-note">你在现行地图上，找不到这个地址。</p>
+          <button id="file-letter" class="brass-button">
+            收进维修簿 <span>→</span>
+          </button>
+        </article>
+      </dialog>
+      <dialog id="journal">
+        <section class="enamel wide-panel">
+          <button
+            class="close-button"
+            data-close="journal"
+            aria-label="关闭维修簿"
+          >
+            ×
+          </button>
+          <p class="panel-context">诺拉的现场记录</p>
+          <h2>维修簿</h2>
+          <div id="journal-entries"></div>
+          <p class="small-note" id="save-status">进度保存在当前浏览器</p>
+        </section>
+      </dialog>
+      <dialog id="city-map">
+        <section class="enamel city-map-panel">
+          <button
+            class="close-button"
+            data-close="city-map"
+            aria-label="关闭城区图"
+          >
+            ×
+          </button>
+          <p class="chapter-name">FOGHARBOR · CITY & RIVERSIDE</p>
+          <h2>河岸、工人铁路与上城</h2>
+          <p class="panel-description">
+            铜色铁路线沿旧锅炉厂连接盐锈巷与泵厂；蓝色航线跨过河阶里和市场，停在学徒院。点击站名步行至升降台，按 E 候车或登乘；途中可环视、缩放，到站自动下车。
+          </p>
+          <div class="transit-destinations" aria-label="步行到火车站或飞艇码头"></div>
+          <svg
+            viewBox="0 0 640 420"
+            class="city-map-drawing"
+            role="img"
+            aria-label="雾港连续城区图：河岸主线与十处新街坊，经坡道、石阶和马车街道连接教堂、医院、酒馆、市场、驿马院、清运巷、邮务街、学徒院、货栈及温室"
+          ></svg>
+          <div class="map-destinations">
+            <button class="choice-button" data-walk-to="bench">
+              走回修理工坊</button
+            ><button class="choice-button" data-walk-to="wharf">
+              沿河去第七码头</button
+            ><button class="choice-button" data-walk-to="beck">
+              走到老泵站</button
+            ><button class="choice-button" data-walk-to="riverside">
+              绕到南岸步道
+            </button>
+            <button class="choice-button" data-walk-to="inncourt">
+              登上客栈院
+            </button>
+            <button class="choice-button" data-walk-to="postcourt">
+              去邮局广场
+            </button>
+            <button class="choice-button" data-walk-to="canalmews">
+              走进河阶里
+            </button>
+            <button class="choice-button" data-walk-to="clockwalk">
+              登上钟匠高街
+            </button>
+            <button class="choice-button" data-walk-to="chapelcourt">
+              走上教堂前庭
+            </button>
+          </div>
+        </section>
+      </dialog>
+      <dialog id="pump-inspection">
+        <section class="enamel interaction-panel">
+          <button
+            class="close-button"
+            data-close="pump-inspection"
+            aria-label="离开泵站检查"
+          >
+            ×
+          </button>
+          <p class="chapter-name">OLD PUMP WORKS</p>
+          <h2>旧阀盖的漏汽</h2>
+          <p class="panel-description">
+            贝克守着内支路。先确定漏点，再处理外侧。
+          </p>
+          <div id="pump-evidence" class="evidence-buttons">
+            <button data-pump-observe="gauge">压力表</button
+            ><button data-pump-observe="seam">阀盖接缝</button
+            ><button data-pump-observe="ledger">检修记录</button>
+          </div>
+          <p id="pump-readout">轮子还在转，表针却先往下沉了一下。</p>
+          <div id="pump-diagnosis" hidden>
+            <button id="pump-correct" class="choice-button">
+              更换外侧阀盖垫片</button
+            ><button id="pump-wrong" class="choice-button">关闭整条总管</button>
+          </div>
+          <div id="pump-repair" hidden>
+            <p id="pump-step-copy"></p>
+            <button class="brass-button" id="pump-step">关闭外侧小阀</button>
+          </div>
+        </section>
+      </dialog>
+      <dialog id="settings">
+        <section class="enamel settings-panel">
+          <button
+            class="close-button"
+            data-close="settings"
+            aria-label="关闭设置"
+          >
+            ×
+          </button>
+          <h2>设置与操作</h2>
+          <label class="setting-row"
+            >音乐与环境声音<input
+              id="sound-enabled"
+              type="checkbox"
+              checked /></label
+          ><label class="setting-row"
+            >音量<input
+              id="volume"
+              type="range"
+              min="0"
+              max="100"
+              value="35"
+              aria-label="音量" /></label
+          ><label class="setting-row"
+            >减弱镜头运动<input id="reduced-motion" type="checkbox"
+          /></label>
+          <label class="setting-row">远景细节优化<input id="lod-enabled" type="checkbox" checked /></label>
+          <dl class="key-guide">
+            <dt>点击地面 / WASD / 方向键</dt>
+            <dd>移动到目标位置</dd>
+            <dt>拖拽 / 滚轮</dt>
+            <dd>旋转 / 缩放等距镜头</dd>
+            <dt>E / J / M / R</dt>
+            <dd>互动 / 维修簿 / 城区图 / 恢复视角</dd>
+          </dl>
+          <div class="settings-actions">
+            <button id="reset-camera" class="choice-button">恢复等距视角</button
+            ><button id="restart-button" class="quiet-button">
+              重玩河岸故事</button
+            ><button id="replay-opening" class="quiet-button">
+              重看开门时的对话
+            </button>
+          </div>
+          <p class="performance-note">
+            <span id="fps">—</span> FPS ·
+            <span id="quality-label">自动画质</span>
+          </p>
+        </section>
+      </dialog>
+      <dialog id="restart">
+        <section class="enamel settings-panel">
+          <h2>重新开门营业？</h2>
+          <p>这会重新开始河岸故事的维修与对话。</p>
+          <button id="confirm-restart" class="brass-button">
+            重新开始河岸故事</button
+          ><button class="quiet-button" data-close="restart">
+            继续当前进度
+          </button>
+        </section>
+      </dialog>
+    </main>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
